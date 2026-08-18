@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "WhatsApp Bot"
+version = "1.0.0"
+id = "artifacts/whatsapp-bot-ui"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19430
+
+[services.development]
+run = "pnpm --filter @workspace/whatsapp-bot-ui run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/whatsapp-bot-ui", "run", "build" ]
+publicDir = "artifacts/whatsapp-bot-ui/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19430"
+BASE_PATH = "/"

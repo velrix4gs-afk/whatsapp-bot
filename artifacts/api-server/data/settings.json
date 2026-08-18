@@ -1,0 +1,43 @@
+{
+  "features": {
+    "autoReact": true,
+    "saveStatus": true,
+    "savePP": true,
+    "viewOnce": true,
+    "saveProfile": true,
+    "antiDelete": false,
+    "autoDownloadStatus": false,
+    "antiLink": false,
+    "welcomeGoodbye": false,
+    "aiChat": true,
+    "customCommands": true,
+    "autoPresence": true
+  },
+  "reactionEmojis": [
+    "❤️",
+    "🔥",
+    "😍",
+    "🥰",
+    "😂",
+    "👏",
+    "🎉",
+    "💯",
+    "✨",
+    "😊",
+    "🙌",
+    "💪",
+    "😎",
+    "🫶",
+    "💥",
+    "🤩",
+    "😁",
+    "❤️‍🔥",
+    "🥳",
+    "👀"
+  ],
+  "keywordReplies": [],
+  "welcomeMessage": "👋 Welcome {name}! Glad to have you here.",
+  "goodbyeMessage": "👋 {name} has left the group. Goodbye!",
+  "antiLinkWhitelist": [],
+  "aiSystemPrompt": "You are a helpful WhatsApp assistant. Keep responses short and friendly."
+}
