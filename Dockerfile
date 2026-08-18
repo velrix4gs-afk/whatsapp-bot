@@ -1,3 +1,4 @@
+# Force rebuild 2026-08-18
 FROM node:20-slim
 
 WORKDIR /app
