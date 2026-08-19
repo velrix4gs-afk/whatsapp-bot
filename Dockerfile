@@ -1,3 +1,4 @@
+# Force rebuild 2026-08-18
 FROM node:20-slim
 
 WORKDIR /app
@@ -20,4 +21,8 @@ WORKDIR /app/artifacts/api-server
 EXPOSE 8080
 
 # Run with tsx (no build needed)
+<<<<<<< HEAD
 CMD ["pnpm", "exec", "tsx", "src/index.ts"]
+=======
+CMD ["pnpm", "exec", "tsx", "src/index.ts"]
+>>>>>>> 11d504bba3aeb7ada7cefaf7ebcd33e2b0ce33f5
