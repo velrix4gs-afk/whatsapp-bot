@@ -15,7 +15,6 @@
     "@google/generative-ai": "^0.24.1",
     "@hapi/boom": "^10.0.1",
     "@whiskeysockets/baileys": "7.0.0-rc.9",
-    "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "cookie-parser": "^1.4.7",
     "cors": "^2",
