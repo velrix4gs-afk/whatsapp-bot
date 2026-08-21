@@ -17,10 +17,5 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
     "sharp": "^0.34.5"
-  },
-  "pnpm": {
-    "overrides": {
-      "esbuild": "npm:esbuild-wasm@0.28.1"
-    }
   }
 }
