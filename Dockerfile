@@ -12,8 +12,9 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY artifacts/api-server/package.json ./artifacts/api-server/
 
-# Allow exotic subdependencies (git repos in subdeps)
+# Allow exotic subdependencies and approve build scripts
 RUN pnpm config set block-exotic-subdeps false
+RUN pnpm config set approve-builds true
 
 # Install dependencies
 RUN pnpm install --no-frozen-lockfile
