@@ -1,15 +1,17 @@
-FROM node:20-slim
+FROM node:22-slim
 
 WORKDIR /app
 
 # Install pnpm and tsx
 RUN npm install -g pnpm tsx
 
-# Copy all source code
-COPY . .
-
-# Install all dependencies (all workspaces)
+# Copy package files and install dependencies
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY artifacts/api-server/package.json ./artifacts/api-server/
 RUN pnpm install --frozen-lockfile
+
+# Copy source code
+COPY . .
 
 # Set working directory to api-server
 WORKDIR /app/artifacts/api-server
