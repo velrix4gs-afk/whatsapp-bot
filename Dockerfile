@@ -2,6 +2,9 @@ FROM node:22-slim
 
 WORKDIR /app
 
+# Install git for Baileys
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
 # Install pnpm and tsx
 RUN npm install -g pnpm tsx
 
