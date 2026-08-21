@@ -1,6 +1,5 @@
 /**
- * WhatsApp Bot – All‑in‑One (Fully Working)
- * Features: .ping, .save, .sticker (with sharp), .savepp, .vv, reaction trigger, status auto‑like, custom commands, no prefix.
+ * WhatsApp Bot – All‑in‑One with Supabase Storage + Auto‑Reconnect
  */
 import makeWASocket, {
   Browsers,
@@ -18,8 +17,8 @@ import { Boom } from "@hapi/boom";
 import fs from "fs";
 import path from "path";
 import pino from "pino";
-import { startSustainedTyping, showRecording, clearPresence } from "./features/presence";
-import sharp from "sharp"; // <-- make sure sharp is installed
+import sharp from "sharp";
+import { createClient } from '@supabase/supabase-js';
 
 // ── Dashboard stubs ─────────────────────────────────────────────────────────
 export const CMD = ".";
@@ -42,6 +41,12 @@ const BASE_DIR = path.join(process.cwd(), "data");
 const MEDIA_DIR = path.join(BASE_DIR, "saved_media");
 const CUSTOM_COMMANDS_FILE = path.join(BASE_DIR, "custom_commands.json");
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
+
+// ── Supabase client ──────────────────────────────────────────────────────
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_ANON_KEY!
+);
 
 // ── Custom commands ──────────────────────────────────────────────────────
 let customCommands: Record<string, string> = {};
@@ -165,6 +170,25 @@ async function downloadMedia(
   return toBuffer(stream);
 }
 
+// ── Upload to Supabase Storage ──────────────────────────────────────────
+async function uploadToSupabase(buffer: Buffer, filename: string, mime: string): Promise<string> {
+  const { error } = await supabase.storage
+    .from('saved_media')
+    .upload(`public/${filename}`, buffer, {
+      contentType: mime,
+      cacheControl: '3600',
+      upsert: false,
+    });
+  if (error) {
+    console.error('Upload to Supabase failed:', error);
+    throw error;
+  }
+  const { data: urlData } = supabase.storage
+    .from('saved_media')
+    .getPublicUrl(`public/${filename}`);
+  return urlData?.publicUrl || '';
+}
+
 // ── Send to owner DM ──────────────────────────────────────────────────────
 async function sendToOwnerDM(
   sock: WASocket,
@@ -228,10 +252,15 @@ async function handleViewOnce(
     const ext = mimeToExt(extracted.mediaMsg.mimetype);
     const mime = extracted.mediaMsg.mimetype ?? "application/octet-stream";
     const filename = `vo_${Date.now()}_${fromLabel}.${ext}`;
+
+    // ── Upload to Supabase ──────────────────────────────────────────────
+    const publicUrl = await uploadToSupabase(buffer, filename, mime);
+    addLog(`📤 Uploaded to Supabase: ${filename}`);
+    // ── Also save locally for fallback ──────────────────────────────────
     fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
     addSavedFile(filename);
-    addLog(`💾 Saved to ${filename}`);
-    const caption = `🔓 *View-once ${extracted.mediaType}* (auto-saved)\nFrom: +${fromLabel}${inLabel}`;
+
+    const caption = `🔓 *View-once ${extracted.mediaType}* (auto-saved)\nFrom: +${fromLabel}${inLabel}\n📁 ${publicUrl}`;
     await sendToOwnerDM(sock, ownerJid, buffer, extracted.mediaType, mime, caption, addLog);
   } catch (e) {
     addLog(`⚠️ Auto-capture failed: ${(e as Error).message}`);
@@ -295,7 +324,7 @@ async function handleReaction(
 
   const fromLabel = entry.senderJid.split("@")[0] ?? "unknown";
   const inLabel = entry.chatJid.endsWith("@g.us") ? ` in group ${entry.chatJid.split("@")[0]}` : "";
-  const caption = `🔓 *View-once ${entry.mediaType}* (saved via ${emoji})\nFrom: +${fromLabel}${inLabel}`;
+  const captionBase = `🔓 *View-once ${entry.mediaType}* (saved via ${emoji})\nFrom: +${fromLabel}${inLabel}`;
 
   addLog(`📥 Reaction trigger: downloading ${entry.mediaType}…`);
   try {
@@ -303,9 +332,14 @@ async function handleReaction(
     const ext = mimeToExt(entry.mediaMsg.mimetype);
     const mime = entry.mediaMsg.mimetype ?? "application/octet-stream";
     const filename = `vo_react_${Date.now()}_${fromLabel}.${ext}`;
+
+    // ── Upload to Supabase ──────────────────────────────────────────────
+    const publicUrl = await uploadToSupabase(buffer, filename, mime);
+    // ── Also save locally ──────────────────────────────────────────────
     fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
     addSavedFile(filename);
-    addLog(`💾 Saved reaction file: ${filename}`);
+
+    const caption = `${captionBase}\n📁 ${publicUrl}`;
     const ownerJid = getOwnerJid(sock);
     if (ownerJid) {
       await sendToOwnerDM(sock, ownerJid, buffer, entry.mediaType, mime, caption, addLog);
@@ -358,10 +392,15 @@ async function handleSaveStatus(
     const buffer = await downloadMedia(media as MediaMsg, type);
     const ext = mimeToExt(media.mimetype);
     const filename = `status_${Date.now()}.${ext}`;
+    const mime = media.mimetype ?? "application/octet-stream";
+
+    // ── Upload to Supabase ──────────────────────────────────────────────
+    const publicUrl = await uploadToSupabase(buffer, filename, mime);
+    // ── Save locally ────────────────────────────────────────────────────
     fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
     addSavedFile(filename);
-    addLog(`💾 Saved status: ${filename}`);
-    await sock.sendMessage(chatJid, { text: `✅ Status saved as ${filename}` });
+
+    await sock.sendMessage(chatJid, { text: `✅ Status saved!\n📁 ${publicUrl}` });
     return true;
   } catch (e) {
     addLog(`❌ Save status failed: ${(e as Error).message}`);
@@ -392,7 +431,6 @@ async function handleSticker(
     if (type === "image") {
       stickerBuffer = await sharp(buffer).webp().toBuffer();
     } else {
-      // For videos, send as document (or you could use ffmpeg for animated stickers)
       addLog(`⚠️ Video sticker requires ffmpeg – sending as document.`);
       await sock.sendMessage(chatJid, { document: buffer, mimetype: "video/mp4", fileName: "sticker.mp4" });
       return true;
@@ -421,10 +459,15 @@ async function handleSavePP(
     const resp = await fetch(pp);
     const buffer = Buffer.from(await resp.arrayBuffer());
     const filename = `pp_${sender.split("@")[0]}.jpg`;
+    const mime = "image/jpeg";
+
+    // ── Upload to Supabase ──────────────────────────────────────────────
+    const publicUrl = await uploadToSupabase(buffer, filename, mime);
+    // ── Save locally ────────────────────────────────────────────────────
     fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
     addSavedFile(filename);
-    addLog(`💾 Saved profile picture: ${filename}`);
-    await sock.sendMessage(chatJid, { text: `✅ Profile picture saved as ${filename}` });
+
+    await sock.sendMessage(chatJid, { text: `✅ Profile picture saved!\n📁 ${publicUrl}` });
     return true;
   } catch (e) {
     addLog(`❌ Save PP failed: ${(e as Error).message}`);
@@ -454,11 +497,16 @@ async function handleVv(
     const buffer = await downloadMedia(extracted.mediaMsg, extracted.mediaType);
     const ext = mimeToExt(extracted.mediaMsg.mimetype);
     const filename = `vv_${Date.now()}.${ext}`;
+    const mime = extracted.mediaMsg.mimetype ?? "application/octet-stream";
+
+    // ── Upload to Supabase ──────────────────────────────────────────────
+    const publicUrl = await uploadToSupabase(buffer, filename, mime);
+    // ── Save locally ────────────────────────────────────────────────────
     fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
     addSavedFile(filename);
-    addLog(`💾 Saved via .vv: ${filename}`);
-    const caption = `🔓 *View-once ${extracted.mediaType} (.vv)*\nFrom: +${chatJid.split("@")[0]}`;
-    await sendToOwnerDM(sock, ownerJid, buffer, extracted.mediaType, extracted.mediaMsg.mimetype, caption, addLog);
+
+    const caption = `🔓 *View-once ${extracted.mediaType} (.vv)*\nFrom: +${chatJid.split("@")[0]}\n📁 ${publicUrl}`;
+    await sendToOwnerDM(sock, ownerJid, buffer, extracted.mediaType, mime, caption, addLog);
     return true;
   } catch (e) {
     addLog(`❌ .vv failed: ${(e as Error).message}`);
@@ -557,6 +605,36 @@ export async function startSession(id: string, label?: string) {
       }
     });
 
+    // ── Auto‑reconnect monitor ──────────────────────────────────────────
+    setInterval(async () => {
+      try {
+        const state = sessions.get(id);
+        if (!state || state.status !== "connected") return;
+
+        const sock = state._sock;
+        if (!sock) return;
+
+        // Check if socket is alive
+        if (!sock.user) {
+          addLog(state, "⚠️ Socket user missing – restarting session");
+          state._sock = null;
+          state.status = "disconnected";
+          await startSession(id);
+          return;
+        }
+
+        // Try to send a presence update (throws if dead)
+        await sock.sendPresenceUpdate("available");
+      } catch (err) {
+        const state = sessions.get(id);
+        if (!state) return;
+        addLog(state, `⚠️ Health check failed: ${(err as Error).message} – restarting`);
+        state._sock = null;
+        state.status = "disconnected";
+        await startSession(id);
+      }
+    }, 60_000); // every 60 seconds
+
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       console.log(`🔥 MESSAGES.UPSERT type=${type}, count=${messages.length}`);
 
@@ -586,18 +664,6 @@ export async function startSession(id: string, label?: string) {
           state.savedFiles.unshift(f);
           if (state.savedFiles.length > 30) state.savedFiles.pop();
         }, (m) => addLog(state, m));
-
-        // ── Auto‑presence: show typing or recording ────────────────────────────
-        const s = { features: { autoPresence: true } }; // or link to your settings
-        if (s.features.autoPresence) {
-          sock.readMessages([msg.key]).catch(() => { });
-          const lower = text.trim().toLowerCase();
-          if (lower.startsWith("sticker") || lower === ".sticker") {
-            showRecording(sock, chatJid, 2000).catch(() => { });
-          } else {
-            startSustainedTyping(sock, chatJid, 60_000);
-          }
-        }
 
         // ── If no text, skip commands ──────────────────────────────────
         if (!text) continue;
