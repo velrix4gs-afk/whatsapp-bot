@@ -12,8 +12,8 @@ RUN git config --global url."https://github.com".insteadOf "git@github.com:"
 # Copy all source code
 COPY . .
 
-# Install all dependencies (all workspaces)
-RUN pnpm install --no-frozen-lockfile
+# Install dependencies and allow git-based sub-dependencies (required for baileys/libsignal)
+RUN pnpm install --no-frozen-lockfile --no-block-exotic-subdeps
 
 # Set working directory to api-server
 WORKDIR /app/artifacts/api-server
