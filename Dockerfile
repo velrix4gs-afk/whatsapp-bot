@@ -7,13 +7,13 @@ RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/* \
     && npm install -g pnpm tsx
 
 # Configure git inside the container to force HTTPS instead of SSH
-RUN git config --global url."https://github.com".insteadOf "git@github.com:"
+RUN git config --global url."https://github.com/".insteadOf "git@github.com:"
 
 # Copy all source code
 COPY . .
 
-# Install dependencies using inline configuration flags to bypass supply chain blocks
-RUN pnpm install --no-frozen-lockfile --config.block-exotic-subdeps=false --config.minimum-release-age=0
+# Install all dependencies (all workspaces)
+RUN pnpm install --no-frozen-lockfile
 
 # Set working directory to api-server
 WORKDIR /app/artifacts/api-server

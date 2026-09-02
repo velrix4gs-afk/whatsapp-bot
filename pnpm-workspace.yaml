@@ -5,7 +5,10 @@ packages:
   - lib/integrations/*
   - scripts
 
+blockExoticSubdeps: false
+
 autoInstallPeers: false
+
 
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.1
