@@ -7,17 +7,13 @@ RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/* \
     && npm install -g pnpm tsx
 
 # Configure git inside the container to force HTTPS instead of SSH
-RUN git config --global url."https://github.com/".insteadOf "git@github.com:"
+RUN git config --global url."https://github.com".insteadOf "git@github.com:"
 
 # Copy all source code
 COPY . .
 
-# Bypass pnpm supply-chain checks for exotic subdependencies (required for baileys/libsignal)
-ENV pnpm_config_blockExoticSubdeps=false
-ENV pnpm_config_minimumReleaseAge=0
-
-# Install all dependencies (all workspaces)
-RUN pnpm install --no-frozen-lockfile
+# Install dependencies using inline configuration flags to bypass supply chain blocks
+RUN pnpm install --no-frozen-lockfile --config.block-exotic-subdeps=false --config.minimum-release-age=0
 
 # Set working directory to api-server
 WORKDIR /app/artifacts/api-server
