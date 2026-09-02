@@ -9,7 +9,8 @@ RUN npm install -g pnpm tsx
 COPY . .
 
 # Install all dependencies (all workspaces)
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
+
 
 # Set working directory to api-server
 WORKDIR /app/artifacts/api-server
