@@ -19,6 +19,7 @@ import path from "path";
 import pino from "pino";
 import sharp from "sharp";
 import { createClient } from '@supabase/supabase-js';
+import ws from "ws";
 
 // ── Dashboard stubs ─────────────────────────────────────────────────────────
 export const CMD = ".";
@@ -45,7 +46,12 @@ fs.mkdirSync(MEDIA_DIR, { recursive: true });
 // ── Supabase client ──────────────────────────────────────────────────────
 const supabase = createClient(
   process.env.SUPABASE_URL!,
-  process.env.SUPABASE_ANON_KEY!
+  process.env.SUPABASE_ANON_KEY!,
+  {
+    realtime: {
+      transport: ws as any,
+    },
+  }
 );
 
 // ── Custom commands ──────────────────────────────────────────────────────
