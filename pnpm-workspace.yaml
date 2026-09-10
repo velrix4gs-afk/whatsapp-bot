@@ -2,7 +2,19 @@ packages:
   - 'artifacts/*'
   - 'lib/*'
 
+blockExoticSubdeps: false
+
 autoInstallPeers: false
+
+# Add these lines to authorize compilation scripts for your bot's core dependencies:
+allowBuilds:
+  "@google/genai": true
+  "@whiskeysockets/baileys": true
+  "esbuild": true
+  "protobufjs": true
+  "sharp": true
+
+
 
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.1

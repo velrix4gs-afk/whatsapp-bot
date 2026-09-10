@@ -3,8 +3,12 @@ FROM node:22-slim
 # Install git (needed for baileys git dependency)
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
-# Install pnpm and tsx
-RUN npm install -g pnpm tsx
+# Install system dependencies (git is required by pnpm for github dependencies), pnpm, and tsx
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/* \
+    && npm install -g pnpm tsx
+
+# Configure git inside the container to force HTTPS instead of SSH
+RUN git config --global url."https://github.com/".insteadOf "git@github.com:"
 
 WORKDIR /app
 
@@ -21,6 +25,13 @@ RUN pnpm install --no-frozen-lockfile --ignore-scripts
 # Copy source code
 COPY . .
 
+<<<<<<< HEAD
+=======
+# Install all dependencies (all workspaces)
+RUN pnpm install --no-frozen-lockfile
+
+# Set working directory to api-server
+>>>>>>> 202acdb632378146f876ef7d9d0c2402cb669b2c
 WORKDIR /app/artifacts/api-server
 
 EXPOSE 8080
