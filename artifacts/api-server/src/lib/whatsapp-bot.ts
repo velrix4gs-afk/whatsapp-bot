@@ -544,11 +544,18 @@ export async function startSession(id: string, label?: string) {
       _sock: null,
       _stopRequested: false,
       _retryCount: 0,
+      _starting: false,
       savedFiles: [],
       log: [],
     };
     sessions.set(id, state);
   }
+  // Guard: skip duplicate starts
+  if (state._starting || state.status === "connected" || state.status === "connecting") {
+    addLog(state, `⏭️ Already ${state.status} — skipping duplicate start`);
+    return;
+  }
+  state._starting = true;
 
   const authDir = path.join(BASE_DIR, "sessions", id, "auth");
   fs.mkdirSync(authDir, { recursive: true });
@@ -595,6 +602,7 @@ export async function startSession(id: string, label?: string) {
         state.status = "connected";
         state.qrDataUrl = null;
         state.phoneNumber = sock.user?.id?.split(":")[0] || null;
+        state._starting = false;
         addLog(state, `✅ Connected as +${state.phoneNumber}`);
       }
       if (connection === "close") {
@@ -754,6 +762,7 @@ export async function startSession(id: string, label?: string) {
     });
 
   } catch (err) {
+    state._starting = false;
     addLog(state, `Init error: ${(err as Error).message}`);
     if (!state._stopRequested) {
       state._retryCount++;
