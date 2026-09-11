@@ -157,6 +157,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.112.3
         version: 2.112.3
+      node-telegram-bot-api:
+        specifier: ^2.1.0
+        version: 2.1.0
       sharp:
         specifier: ^0.34.5
         version: 0.34.5
@@ -164,6 +167,9 @@ importers:
         specifier: ^8.21.3
         version: 8.21.3
     devDependencies:
+      '@types/node-telegram-bot-api':
+        specifier: ^0.64.15
+        version: 0.64.15
       esbuild-wasm:
         specifier: ^0.28.1
         version: 0.28.1
@@ -1983,6 +1989,9 @@ packages:
   '@types/http-errors@2.0.5':
     resolution: {integrity: sha512-r8Tayk8HJnX0FztbZN7oVqGccWgw98T/0neJphO91KkmOzug1KkofZURD4UaD5uH8AqcFLfdPErnBod0u71/qg==}
 
+  '@types/node-telegram-bot-api@0.64.15':
+    resolution: {integrity: sha512-Ac1ZgSSHcO6P++7dsLSm3tjzInDLE0WrDTXHoUPKn/sUfDyR3f+IDtIUaSp/kLu+gn/jplGgGDY5CD95BEVk+g==}
+
   '@types/node@25.9.5':
     resolution: {integrity: sha512-OScDchr2fwuUmWdf4kZ9h7PcJiYDVInhJizG/biAq3cAvqwYktuy/TYGGdZNMtNTFUP7rnb0NU4TUdm82kt4Rg==}
 
@@ -3113,6 +3122,10 @@ packages:
 
   node-releases@2.0.51:
     resolution: {integrity: sha512-wRNIrw4DmVLKQlbgOMdkMx27Wrpzes2hh5Jtbi2bjPd+4wJstWIqP5A+lscnqbm0xxmT5Bpg8Lec5ItEBwx6BQ==}
+    engines: {node: '>=18'}
+
+  node-telegram-bot-api@2.1.0:
+    resolution: {integrity: sha512-IXWp7Qzhwv21DqTw0g1CcppTb4TCzrQ949RVdtAmgiHAu3KbcRPyCAFXLaFAViqWDVx8GLZjnWiWJ7pWSj2PRA==}
     engines: {node: '>=18'}
 
   npm-run-path@6.0.0:
@@ -5374,6 +5387,11 @@ snapshots:
 
   '@types/http-errors@2.0.5': {}
 
+  '@types/node-telegram-bot-api@0.64.15':
+    dependencies:
+      '@types/node': 25.9.5
+      '@types/request': 2.48.13
+
   '@types/node@25.9.5':
     dependencies:
       undici-types: 7.24.6
@@ -6414,6 +6432,8 @@ snapshots:
       formdata-polyfill: 4.0.10
 
   node-releases@2.0.51: {}
+
+  node-telegram-bot-api@2.1.0: {}
 
   npm-run-path@6.0.0:
     dependencies:

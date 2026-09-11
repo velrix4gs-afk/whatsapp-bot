@@ -10,12 +10,14 @@
   },
   "private": true,
   "devDependencies": {
+    "@types/node-telegram-bot-api": "^0.64.15",
     "esbuild-wasm": "^0.28.1",
     "prettier": "^3.8.1",
     "typescript": "~5.9.2"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
+    "node-telegram-bot-api": "^2.1.0",
     "sharp": "^0.34.5",
     "ws": "^8.21.3"
   }

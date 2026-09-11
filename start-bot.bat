@@ -7,4 +7,5 @@ set SESSION_SECRET=mySuperSecretRandomString12345!
 set SUPABASE_URL=https://gurjbnsxynphlqckajoi.supabase.co
 set SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd1cmpibnN4eW5waGxxY2tham9pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwODc1MTQsImV4cCI6MjEwMjY2MzUxNH0.U7fTnexc9HeOAti19N-LzCNmvczo0z69pJWYprtfKMk
 set PUBLIC_URL=http://localhost:8080
+set TELEGRAM_BOT_TOKEN=8929981064:AAGQwsAvhjX3a_v9H2AIoqgSw-FhkQoturM
 pnpm exec tsx src/index.ts
