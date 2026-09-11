@@ -6,6 +6,7 @@ import fs from "fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import sessionsRouter from "./routes/sessions";
+import authRouter from "./routes/auth";
 
 const app: Express = express();
 
@@ -27,6 +28,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", sessionsRouter);
+app.use("/api", authRouter);
 app.use("/api", router);
 
 app.get("/admin", (_req, res) => {
@@ -38,10 +40,27 @@ app.get("/admin", (_req, res) => {
   }
 });
 
+app.get("/login", (_req, res) => {
+  const filePath = path.join(process.cwd(), "public", "user-login.html");
+  if (fs.existsSync(filePath)) res.sendFile(filePath);
+  else res.status(404).send("Login page not found");
+});
+
 app.get("/user", (_req, res) => {
   const filePath = path.join(process.cwd(), "public", "user.html");
   if (fs.existsSync(filePath)) res.sendFile(filePath);
   else res.status(404).send("User page not found");
+});
+
+app.get("/user-settings", (_req, res) => {
+  const filePath = path.join(process.cwd(), "public", "user-settings.html");
+  if (fs.existsSync(filePath)) res.sendFile(filePath);
+  else res.status(404).send("Settings page not found");
+});
+
+// Redirect root to admin dashboard
+app.get("/", (_req, res) => {
+  res.redirect("/admin");
 });
 
 export default app;

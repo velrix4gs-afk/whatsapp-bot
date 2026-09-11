@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login – WhatsApp Bot</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #0f1117;
+            color: #e6e6e6;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: #1a1d26;
+            border: 1px solid #252933;
+            border-radius: 16px;
+            padding: 40px 30px;
+            width: 100%;
+            max-width: 420px;
+        }
+
+        h1 {
+            color: #00ff88;
+            font-size: 22px;
+            margin-bottom: 6px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            background: #0f1117;
+            padding: 4px;
+            border-radius: 10px;
+        }
+
+        .tab {
+            flex: 1;
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #888;
+            transition: 0.2s;
+        }
+
+        .tab.active {
+            background: #00ff88;
+            color: #0f1117;
+            font-weight: 600;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 6px;
+            margin-top: 16px;
+        }
+
+        input {
+            width: 100%;
+            background: #0f1117;
+            border: 1px solid #252933;
+            color: #e6e6e6;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 15px;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: #00ff88;
+        }
+
+        .btn {
+            width: 100%;
+            background: #00ff88;
+            color: #0f1117;
+            border: none;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 24px;
+        }
+
+        .btn:hover {
+            background: #00cc6a;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .error {
+            background: #ff475722;
+            border: 1px solid #ff4757;
+            color: #ff8888;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-top: 16px;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>🤖 WhatsApp Bot</h1>
+        <p class="subtitle">Sign in to manage your bot settings.</p>
+
+        <div class="tabs">
+            <div class="tab active" id="tab-login" onclick="switchTab('login')">Login</div>
+            <div class="tab" id="tab-register" onclick="switchTab('register')">Register</div>
+        </div>
+
+        <div>
+            <label>Phone Number (with country code)</label>
+            <input type="tel" id="phone" placeholder="e.g., 2348103077073" />
+
+            <label>4‑digit PIN</label>
+            <input type="password" id="pin" maxlength="4" inputmode="numeric" placeholder="••••" />
+
+            <button class="btn" id="submit-btn" onclick="submit()">Login</button>
+
+            <div id="error" class="error"></div>
+        </div>
+    </div>
+
+    <script>
+        const API = '/api';
+        let mode = 'login';
+
+        function switchTab(newMode) {
+            mode = newMode;
+            document.getElementById('tab-login').classList.toggle('active', mode === 'login');
+            document.getElementById('tab-register').classList.toggle('active', mode === 'register');
+            document.getElementById('submit-btn').textContent = mode === 'login' ? 'Login' : 'Register';
+            document.getElementById('error').style.display = 'none';
+        }
+
+        async function submit() {
+            const phone = document.getElementById('phone').value.trim();
+            const pin = document.getElementById('pin').value.trim();
+            const errEl = document.getElementById('error');
+            const btn = document.getElementById('submit-btn');
+
+            errEl.style.display = 'none';
+
+            if (!phone || !pin) {
+                errEl.textContent = 'Enter your phone number and PIN.';
+                errEl.style.display = 'block';
+                return;
+            }
+            if (!/^\d{4}$/.test(pin)) {
+                errEl.textContent = 'PIN must be exactly 4 digits.';
+                errEl.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = mode === 'login' ? 'Logging in...' : 'Creating account...';
+
+            try {
+                const res = await fetch(`${API}/auth/${mode}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone, pin })
+                });
+                const data = await res.json();
+
+                if (!data.ok) {
+                    throw new Error(data.error || 'Something went wrong');
+                }
+
+                if (mode === 'register') {
+                    // After register, auto-login
+                    switchTab('login');
+                    btn.disabled = false;
+                    btn.textContent = 'Login';
+                    errEl.textContent = '✅ Account created. Please login.';
+                    errEl.style.background = '#00ff8822';
+                    errEl.style.borderColor = '#00ff88';
+                    errEl.style.color = '#00ff88';
+                    errEl.style.display = 'block';
+                    return;
+                }
+
+                // Login successful → go to settings page with credentials
+                localStorage.setItem('phone', phone);
+                localStorage.setItem('pin', pin);
+                location.href = '/user-settings';
+
+            } catch (e) {
+                errEl.textContent = e.message;
+                errEl.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = mode === 'login' ? 'Login' : 'Register';
+            }
+        }
+    </script>
+</body>
+
+</html>

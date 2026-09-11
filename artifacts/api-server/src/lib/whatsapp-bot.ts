@@ -108,7 +108,7 @@ export function deleteSession(id: string): void {
   unregisterSession(id);
   sessions.delete(id);
   const authDir = path.join(BASE_DIR, "sessions", id);
-  registerSession(id, label || id);
+  registerSession(id, id);
   try { fs.rmSync(authDir, { recursive: true, force: true }); } catch { }
 }
 
