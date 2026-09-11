@@ -1,5 +1,5 @@
 /**
- * WhatsApp Bot – All‑in‑One with Supabase Storage + Auto‑Reconnect
+ * WhatsApp Bot – All‑in‑One (Fully Working)
  */
 import makeWASocket, {
   Browsers,
@@ -17,25 +17,8 @@ import { Boom } from "@hapi/boom";
 import fs from "fs";
 import path from "path";
 import pino from "pino";
+import { startSustainedTyping, showRecording } from "./features/presence";
 import sharp from "sharp";
-import { createClient } from '@supabase/supabase-js';
-import ws from "ws";
-
-// ── Dashboard stubs ─────────────────────────────────────────────────────────
-export const CMD = ".";
-export const botState = {
-  get status() { return sessions.get("default")?.status ?? "disconnected"; },
-  get qrDataUrl() { return sessions.get("default")?.qrDataUrl ?? null; },
-  get phoneNumber() { return sessions.get("default")?.phoneNumber ?? null; },
-  get savedFiles() { return []; },
-  get log() { return []; },
-};
-export function getSock() { return sessions.get("default")?._sock ?? null; }
-export function getAllSessions() { return []; }
-export function getSessionState() { return undefined; }
-export function deleteSession() { }
-export function stopSession() { }
-export function requestPairingCode() { return Promise.resolve(""); }
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const BASE_DIR = path.join(process.cwd(), "data");
@@ -43,16 +26,111 @@ const MEDIA_DIR = path.join(BASE_DIR, "saved_media");
 const CUSTOM_COMMANDS_FILE = path.join(BASE_DIR, "custom_commands.json");
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
-// ── Supabase client ──────────────────────────────────────────────────────
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_ANON_KEY!,
-  {
-    realtime: {
-      transport: ws as any,
-    },
+export const CMD = ".";
+const SESSIONS_FILE = path.join(BASE_DIR, "sessions_list.json");
+
+function loadSessionIds(): { id: string; label: string }[] {
+  try {
+    return JSON.parse(fs.readFileSync(SESSIONS_FILE, "utf8"));
+  } catch {
+    return [];
   }
-);
+}
+
+function saveSessionIds(list: { id: string; label: string }[]): void {
+  try {
+    fs.mkdirSync(BASE_DIR, { recursive: true });
+    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(list, null, 2));
+  } catch { /* ignore */ }
+}
+
+function registerSession(id: string, label: string): void {
+  const list = loadSessionIds();
+  if (!list.find(s => s.id === id)) {
+    list.push({ id, label });
+    saveSessionIds(list);
+  }
+}
+
+function unregisterSession(id: string): void {
+  const list = loadSessionIds().filter(s => s.id !== id);
+  saveSessionIds(list);
+}
+
+// ── Session registry (must come before exports that use it) ───────────────
+const sessions = new Map<string, any>();
+
+function addLog(state: any, msg: string) {
+  console.log(`[WA]`, msg);
+}
+
+// ── Exports for dashboard & API ──────────────────────────────────────────
+export const botState = {
+  get status() { return sessions.get("default")?.status ?? "disconnected"; },
+  get qrDataUrl() { return sessions.get("default")?.qrDataUrl ?? null; },
+  get phoneNumber() { return sessions.get("default")?.phoneNumber ?? null; },
+  get savedFiles() { return []; },
+  get log() { return []; },
+};
+
+export function getSock() { return sessions.get("default")?._sock ?? null; }
+
+export function getAllSessions() {
+  return Array.from(sessions.values()).map(s => ({
+    id: s.id,
+    label: s.label,
+    status: s.status,
+    qrDataUrl: s.qrDataUrl,
+    phoneNumber: s.phoneNumber,
+    savedFiles: s.savedFiles,
+    log: s.log,
+  }));
+}
+
+export function getSessionState(id: string) {
+  const s = sessions.get(id);
+  if (!s) return undefined;
+  return {
+    id: s.id,
+    label: s.label,
+    status: s.status,
+    qrDataUrl: s.qrDataUrl,
+    phoneNumber: s.phoneNumber,
+    savedFiles: s.savedFiles,
+    log: s.log,
+  };
+}
+
+export function deleteSession(id: string): void {
+  const s = sessions.get(id);
+  if (!s) return;
+  try { s._sock?.end(undefined); } catch { }
+  unregisterSession(id);
+  sessions.delete(id);
+  const authDir = path.join(BASE_DIR, "sessions", id);
+  registerSession(id, label || id);
+  try { fs.rmSync(authDir, { recursive: true, force: true }); } catch { }
+}
+
+export function stopSession(id: string): void {
+  const s = sessions.get(id);
+  if (!s) return;
+  s._stopRequested = true;
+  try { s._sock?.end(undefined); } catch { }
+  s._sock = null;
+  s.status = "disconnected";
+}
+
+export async function requestPairingCode(id: string, phone: string): Promise<string> {
+  const s = sessions.get(id);
+  if (!s?._sock) throw new Error("Session not connected yet (waiting for QR)");
+  const cleanPhone = phone.replace(/\D/g, "");
+  if (cleanPhone.length < 10) throw new Error("Invalid phone number");
+  const code = await s._sock.requestPairingCode(cleanPhone);
+  s.pairingCode = code;
+  addLog(s, `Pairing code for +${cleanPhone}: ${code}`);
+  return code;
+}
 
 // ── Custom commands ──────────────────────────────────────────────────────
 let customCommands: Record<string, string> = {};
@@ -164,7 +242,7 @@ function extractViewOnceFromQuoted(q: Record<string, unknown>): {
   return null;
 }
 
-// ── Media download (original working method) ──────────────────────────
+// ── Media download ─────────────────────────────────────────────────────
 async function downloadMedia(
   mediaMsg: MediaMsg,
   mediaType: "image" | "video" | "audio",
@@ -176,25 +254,6 @@ async function downloadMedia(
   return toBuffer(stream);
 }
 
-// ── Upload to Supabase Storage ──────────────────────────────────────────
-async function uploadToSupabase(buffer: Buffer, filename: string, mime: string): Promise<string> {
-  const { error } = await supabase.storage
-    .from('saved_media')
-    .upload(`public/${filename}`, buffer, {
-      contentType: mime,
-      cacheControl: '3600',
-      upsert: false,
-    });
-  if (error) {
-    console.error('Upload to Supabase failed:', error);
-    throw error;
-  }
-  const { data: urlData } = supabase.storage
-    .from('saved_media')
-    .getPublicUrl(`public/${filename}`);
-  return urlData?.publicUrl || '';
-}
-
 // ── Send to owner DM ──────────────────────────────────────────────────────
 async function sendToOwnerDM(
   sock: WASocket,
@@ -203,16 +262,16 @@ async function sendToOwnerDM(
   mediaType: "image" | "video" | "audio",
   mime: string | undefined,
   caption: string,
-  addLog: (s: string) => void,
+  addLogFn: (s: string) => void,
 ): Promise<boolean> {
   try {
     if (mediaType === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
     else if (mediaType === "video") await sock.sendMessage(ownerJid, { video: buffer, caption });
     else await sock.sendMessage(ownerJid, { audio: buffer, mimetype: mime ?? "audio/ogg; codecs=opus", ptt: true });
-    addLog(`✅ Sent to owner DM`);
+    addLogFn(`✅ Sent to owner DM`);
     return true;
   } catch (e) {
-    addLog(`❌ DM send failed: ${(e as Error).message}`);
+    addLogFn(`❌ DM send failed: ${(e as Error).message}`);
     return false;
   }
 }
@@ -223,7 +282,7 @@ async function handleViewOnce(
   msg: WAMessage,
   chatJid: string,
   addSavedFile: (f: string) => void,
-  addLog: (s: string) => void,
+  addLogFn: (s: string) => void,
 ): Promise<void> {
   const extracted = extractViewOnceMedia(msg.message);
   if (!extracted) return;
@@ -249,27 +308,22 @@ async function handleViewOnce(
       };
       saveCache(cache);
     }
-    addLog(`📦 Cached view-once ID: ${msgId}`);
+    addLogFn(`📦 Cached view-once ID: ${msgId}`);
   }
 
-  addLog(`📥 View-once ${extracted.mediaType} from +${fromLabel}${inLabel} — capturing…`);
+  addLogFn(`📥 View-once ${extracted.mediaType} from +${fromLabel}${inLabel} — capturing…`);
   try {
     const buffer = await downloadMedia(extracted.mediaMsg, extracted.mediaType);
     const ext = mimeToExt(extracted.mediaMsg.mimetype);
     const mime = extracted.mediaMsg.mimetype ?? "application/octet-stream";
     const filename = `vo_${Date.now()}_${fromLabel}.${ext}`;
-
-    // ── Upload to Supabase ──────────────────────────────────────────────
-    const publicUrl = await uploadToSupabase(buffer, filename, mime);
-    addLog(`📤 Uploaded to Supabase: ${filename}`);
-    // ── Also save locally for fallback ──────────────────────────────────
     fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
     addSavedFile(filename);
-
-    const caption = `🔓 *View-once ${extracted.mediaType}* (auto-saved)\nFrom: +${fromLabel}${inLabel}\n📁 ${publicUrl}`;
-    await sendToOwnerDM(sock, ownerJid, buffer, extracted.mediaType, mime, caption, addLog);
+    addLogFn(`💾 Saved to ${filename}`);
+    const caption = `🔓 *View-once ${extracted.mediaType}* (auto-saved)\nFrom: +${fromLabel}${inLabel}`;
+    await sendToOwnerDM(sock, ownerJid, buffer, extracted.mediaType, mime, caption, addLogFn);
   } catch (e) {
-    addLog(`⚠️ Auto-capture failed: ${(e as Error).message}`);
+    addLogFn(`⚠️ Auto-capture failed: ${(e as Error).message}`);
   }
 }
 
@@ -278,7 +332,7 @@ async function handleReaction(
   sock: WASocket,
   msg: WAMessage,
   addSavedFile: (f: string) => void,
-  addLog: (s: string) => void,
+  addLogFn: (s: string) => void,
 ): Promise<void> {
   const reaction = msg.message?.reactionMessage;
   if (!reaction) return;
@@ -290,69 +344,37 @@ async function handleReaction(
   if (!isFromMe(msg, sock)) return;
 
   const originalId = reaction.key?.id ?? "";
-  const originalChat = reaction.key?.remoteJid ?? "";
-  addLog(`🔁 Owner reacted ${emoji} on msg ${originalId}`);
+  addLogFn(`🔁 Owner reacted ${emoji} on msg ${originalId}`);
 
-  // 1. Try cache
+  // Try cache (loadMessages fallback not available in this Baileys version)
   const cache = loadCache();
-  let entry = cache[originalId];
-
-  // 2. If not in cache, try loading from WhatsApp directly
-  if (!entry) {
-    addLog(`Not in cache, attempting to load from WhatsApp…`);
-    try {
-      const messages = await sock.loadMessages(originalChat, 1, { id: originalId });
-      if (messages && messages.length > 0) {
-        const originalMsg = messages[0];
-        const extracted = extractViewOnceMedia(originalMsg.message);
-        if (extracted) {
-          const isGroup = originalChat.endsWith("@g.us");
-          const senderJid = isGroup ? (originalMsg.key.participant ?? originalChat) : originalChat;
-          entry = {
-            chatJid: originalChat,
-            senderJid,
-            mediaType: extracted.mediaType,
-            mediaMsg: extracted.mediaMsg,
-            savedAt: Date.now(),
-          };
-          addLog(`✅ Loaded view-once from WhatsApp via loadMessages`);
-        }
-      }
-    } catch (e) {
-      addLog(`⚠️ loadMessages failed: ${(e as Error).message}`);
-    }
-  }
+  const entry = cache[originalId];
 
   if (!entry) {
-    addLog(`❌ Not found in cache or via load for ${originalId}`);
+    addLogFn(`❌ Not found in cache for ${originalId}`);
     return;
   }
 
   const fromLabel = entry.senderJid.split("@")[0] ?? "unknown";
   const inLabel = entry.chatJid.endsWith("@g.us") ? ` in group ${entry.chatJid.split("@")[0]}` : "";
-  const captionBase = `🔓 *View-once ${entry.mediaType}* (saved via ${emoji})\nFrom: +${fromLabel}${inLabel}`;
+  const caption = `🔓 *View-once ${entry.mediaType}* (saved via ${emoji})\nFrom: +${fromLabel}${inLabel}`;
 
-  addLog(`📥 Reaction trigger: downloading ${entry.mediaType}…`);
+  addLogFn(`📥 Reaction trigger: downloading ${entry.mediaType}…`);
   try {
     const buffer = await downloadMedia(entry.mediaMsg as MediaMsg, entry.mediaType);
     const ext = mimeToExt(entry.mediaMsg.mimetype);
     const mime = entry.mediaMsg.mimetype ?? "application/octet-stream";
     const filename = `vo_react_${Date.now()}_${fromLabel}.${ext}`;
-
-    // ── Upload to Supabase ──────────────────────────────────────────────
-    const publicUrl = await uploadToSupabase(buffer, filename, mime);
-    // ── Also save locally ──────────────────────────────────────────────
     fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
     addSavedFile(filename);
-
-    const caption = `${captionBase}\n📁 ${publicUrl}`;
+    addLogFn(`💾 Saved reaction file: ${filename}`);
     const ownerJid = getOwnerJid(sock);
     if (ownerJid) {
-      await sendToOwnerDM(sock, ownerJid, buffer, entry.mediaType, mime, caption, addLog);
-      addLog(`✅ Reaction save complete`);
+      await sendToOwnerDM(sock, ownerJid, buffer, entry.mediaType, mime, caption, addLogFn);
+      addLogFn(`✅ Reaction save complete`);
     }
   } catch (e) {
-    addLog(`❌ Reaction download failed: ${(e as Error).message}`);
+    addLogFn(`❌ Reaction download failed: ${(e as Error).message}`);
   }
 }
 
@@ -380,7 +402,7 @@ async function handleSaveStatus(
   msg: WAMessage,
   chatJid: string,
   addSavedFile: (f: string) => void,
-  addLog: (s: string) => void,
+  addLogFn: (s: string) => void,
 ): Promise<boolean> {
   const ctx = msg.message?.extendedTextMessage?.contextInfo;
   if (!ctx?.quotedMessage) return false;
@@ -389,27 +411,22 @@ async function handleSaveStatus(
     return true;
   }
 
-  const quoted = ctx.quotedMessage as Record<string, unknown>;
-  const media = quoted.imageMessage || quoted.videoMessage || quoted.audioMessage;
+  const quoted = ctx.quotedMessage as Record<string, any>;
+  const media = (quoted.imageMessage || quoted.videoMessage || quoted.audioMessage) as MediaMsg | undefined;
   if (!media) return false;
 
   try {
-    const type = quoted.imageMessage ? "image" : quoted.videoMessage ? "video" : "audio";
-    const buffer = await downloadMedia(media as MediaMsg, type);
+    const type: "image" | "video" | "audio" = quoted.imageMessage ? "image" : quoted.videoMessage ? "video" : "audio";
+    const buffer = await downloadMedia(media, type);
     const ext = mimeToExt(media.mimetype);
     const filename = `status_${Date.now()}.${ext}`;
-    const mime = media.mimetype ?? "application/octet-stream";
-
-    // ── Upload to Supabase ──────────────────────────────────────────────
-    const publicUrl = await uploadToSupabase(buffer, filename, mime);
-    // ── Save locally ────────────────────────────────────────────────────
     fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
     addSavedFile(filename);
-
-    await sock.sendMessage(chatJid, { text: `✅ Status saved!\n📁 ${publicUrl}` });
+    addLogFn(`💾 Saved status: ${filename}`);
+    await sock.sendMessage(chatJid, { text: `✅ Status saved as ${filename}` });
     return true;
   } catch (e) {
-    addLog(`❌ Save status failed: ${(e as Error).message}`);
+    addLogFn(`❌ Save status failed: ${(e as Error).message}`);
     return false;
   }
 }
@@ -419,34 +436,33 @@ async function handleSticker(
   sock: WASocket,
   msg: WAMessage,
   chatJid: string,
-  addLog: (s: string) => void,
+  addLogFn: (s: string) => void,
 ): Promise<boolean> {
   const ctx = msg.message?.extendedTextMessage?.contextInfo;
   if (!ctx?.quotedMessage) return false;
 
-  const quoted = ctx.quotedMessage as Record<string, unknown>;
-  const media = quoted.imageMessage || quoted.videoMessage;
+  const quoted = ctx.quotedMessage as Record<string, any>;
+  const media = (quoted.imageMessage || quoted.videoMessage) as MediaMsg | undefined;
   if (!media) return false;
 
   try {
-    const type = quoted.imageMessage ? "image" : "video";
-    const buffer = await downloadMedia(media as MediaMsg, type);
+    const type: "image" | "video" = quoted.imageMessage ? "image" : "video";
+    const buffer = await downloadMedia(media, type);
 
-    // Convert to WebP sticker
     let stickerBuffer: Buffer;
     if (type === "image") {
       stickerBuffer = await sharp(buffer).webp().toBuffer();
     } else {
-      addLog(`⚠️ Video sticker requires ffmpeg – sending as document.`);
+      addLogFn(`⚠️ Video sticker requires ffmpeg – sending as document.`);
       await sock.sendMessage(chatJid, { document: buffer, mimetype: "video/mp4", fileName: "sticker.mp4" });
       return true;
     }
 
     await sock.sendMessage(chatJid, { sticker: stickerBuffer });
-    addLog(`✅ Sticker sent`);
+    addLogFn(`✅ Sticker sent`);
     return true;
   } catch (e) {
-    addLog(`❌ Sticker failed: ${(e as Error).message}`);
+    addLogFn(`❌ Sticker failed: ${(e as Error).message}`);
     return false;
   }
 }
@@ -457,26 +473,25 @@ async function handleSavePP(
   msg: WAMessage,
   chatJid: string,
   addSavedFile: (f: string) => void,
-  addLog: (s: string) => void,
+  addLogFn: (s: string) => void,
 ): Promise<boolean> {
   const sender = msg.key.participant ?? msg.key.remoteJid ?? chatJid;
   try {
     const pp = await sock.profilePictureUrl(sender, "image");
+    if (!pp) {
+      addLogFn(`❌ No profile picture available`);
+      return false;
+    }
     const resp = await fetch(pp);
     const buffer = Buffer.from(await resp.arrayBuffer());
     const filename = `pp_${sender.split("@")[0]}.jpg`;
-    const mime = "image/jpeg";
-
-    // ── Upload to Supabase ──────────────────────────────────────────────
-    const publicUrl = await uploadToSupabase(buffer, filename, mime);
-    // ── Save locally ────────────────────────────────────────────────────
     fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
     addSavedFile(filename);
-
-    await sock.sendMessage(chatJid, { text: `✅ Profile picture saved!\n📁 ${publicUrl}` });
+    addLogFn(`💾 Saved profile picture: ${filename}`);
+    await sock.sendMessage(chatJid, { text: `✅ Profile picture saved as ${filename}` });
     return true;
   } catch (e) {
-    addLog(`❌ Save PP failed: ${(e as Error).message}`);
+    addLogFn(`❌ Save PP failed: ${(e as Error).message}`);
     return false;
   }
 }
@@ -487,7 +502,7 @@ async function handleVv(
   msg: WAMessage,
   chatJid: string,
   addSavedFile: (f: string) => void,
-  addLog: (s: string) => void,
+  addLogFn: (s: string) => void,
 ): Promise<boolean> {
   const ctx = msg.message?.extendedTextMessage?.contextInfo;
   if (!ctx?.quotedMessage) return false;
@@ -503,30 +518,19 @@ async function handleVv(
     const buffer = await downloadMedia(extracted.mediaMsg, extracted.mediaType);
     const ext = mimeToExt(extracted.mediaMsg.mimetype);
     const filename = `vv_${Date.now()}.${ext}`;
-    const mime = extracted.mediaMsg.mimetype ?? "application/octet-stream";
-
-    // ── Upload to Supabase ──────────────────────────────────────────────
-    const publicUrl = await uploadToSupabase(buffer, filename, mime);
-    // ── Save locally ────────────────────────────────────────────────────
     fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
     addSavedFile(filename);
-
-    const caption = `🔓 *View-once ${extracted.mediaType} (.vv)*\nFrom: +${chatJid.split("@")[0]}\n📁 ${publicUrl}`;
-    await sendToOwnerDM(sock, ownerJid, buffer, extracted.mediaType, mime, caption, addLog);
+    addLogFn(`💾 Saved via .vv: ${filename}`);
+    const caption = `🔓 *View-once ${extracted.mediaType} (.vv)*\nFrom: +${chatJid.split("@")[0]}`;
+    await sendToOwnerDM(sock, ownerJid, buffer, extracted.mediaType, extracted.mediaMsg.mimetype, caption, addLogFn);
     return true;
   } catch (e) {
-    addLog(`❌ .vv failed: ${(e as Error).message}`);
+    addLogFn(`❌ .vv failed: ${(e as Error).message}`);
     return false;
   }
 }
 
 // ── SESSION ──────────────────────────────────────────────────────────────────
-const sessions = new Map<string, any>();
-
-function addLog(state: any, msg: string) {
-  console.log(`[WA]`, msg);
-}
-
 export async function startSession(id: string, label?: string) {
   let state = sessions.get(id);
   if (!state) {
@@ -535,6 +539,7 @@ export async function startSession(id: string, label?: string) {
       label: label || id,
       status: "disconnected",
       qrDataUrl: null,
+      pairingCode: null,
       phoneNumber: null,
       _sock: null,
       _stopRequested: false,
@@ -614,32 +619,27 @@ export async function startSession(id: string, label?: string) {
     // ── Auto‑reconnect monitor ──────────────────────────────────────────
     setInterval(async () => {
       try {
-        const state = sessions.get(id);
-        if (!state || state.status !== "connected") return;
-
-        const sock = state._sock;
-        if (!sock) return;
-
-        // Check if socket is alive
-        if (!sock.user) {
-          addLog(state, "⚠️ Socket user missing – restarting session");
-          state._sock = null;
-          state.status = "disconnected";
+        const st = sessions.get(id);
+        if (!st || st.status !== "connected") return;
+        const s = st._sock;
+        if (!s) return;
+        if (!s.user) {
+          addLog(st, "⚠️ Socket user missing – restarting session");
+          st._sock = null;
+          st.status = "disconnected";
           await startSession(id);
           return;
         }
-
-        // Try to send a presence update (throws if dead)
-        await sock.sendPresenceUpdate("available");
+        await s.sendPresenceUpdate("available");
       } catch (err) {
-        const state = sessions.get(id);
-        if (!state) return;
-        addLog(state, `⚠️ Health check failed: ${(err as Error).message} – restarting`);
-        state._sock = null;
-        state.status = "disconnected";
+        const st = sessions.get(id);
+        if (!st) return;
+        addLog(st, `⚠️ Health check failed: ${(err as Error).message} – restarting`);
+        st._sock = null;
+        st.status = "disconnected";
         await startSession(id);
       }
-    }, 60_000); // every 60 seconds
+    }, 60_000);
 
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       console.log(`🔥 MESSAGES.UPSERT type=${type}, count=${messages.length}`);
@@ -671,6 +671,17 @@ export async function startSession(id: string, label?: string) {
           if (state.savedFiles.length > 30) state.savedFiles.pop();
         }, (m) => addLog(state, m));
 
+        // ── Auto‑presence ───────────────────────────────────────────────
+        if (text) {
+          sock.readMessages([msg.key]).catch(() => { });
+          const lowerPresence = text.trim().toLowerCase();
+          if (lowerPresence.startsWith("sticker") || lowerPresence === ".sticker") {
+            showRecording(sock, chatJid, 2000).catch(() => { });
+          } else {
+            startSustainedTyping(sock, chatJid, 60_000);
+          }
+        }
+
         // ── If no text, skip commands ──────────────────────────────────
         if (!text) continue;
 
@@ -690,6 +701,24 @@ export async function startSession(id: string, label?: string) {
         if (cmd === "ping") {
           await sock.sendMessage(chatJid, { text: "🏓 Pong!" });
           console.log(`✅ Pong sent`);
+          continue;
+        }
+
+        if (cmd === "menu" || cmd === "help") {
+          await sock.sendMessage(chatJid, {
+            text: `🤖 *Bot Commands*\n\n` +
+              `*Basics*\n` +
+              `• \`ping\` — check if alive\n` +
+              `• \`menu\` — show this menu\n\n` +
+              `*Media*\n` +
+              `• \`vv\` — reply to a view-once to save it\n` +
+              `• \`sticker\` — reply to image/video → sticker\n` +
+              `• \`save\` — reply to a status to save it\n` +
+              `• \`savepp\` — save sender's profile picture\n\n` +
+              `*Dashboard*\n` +
+              `• Manage: ${process.env.PUBLIC_URL || 'http://localhost:8080'}/admin\n` +
+              `• Link your number: ${process.env.PUBLIC_URL || 'http://localhost:8080'}/user`,
+          });
           continue;
         }
 
@@ -721,20 +750,6 @@ export async function startSession(id: string, label?: string) {
           );
           if (ok) continue;
         }
-
-        if (cmd === "help") {
-          await sock.sendMessage(chatJid, {
-            text: `🤖 *Commands*\n\n` +
-              `\`ping\` – check if alive\n` +
-              `\`save\` – reply to a status to download it\n` +
-              `\`sticker\` – reply to image/video to get sticker\n` +
-              `\`savepp\` – save sender's profile picture\n` +
-              `\`vv\` – reply to a view‑once to save to your DM\n` +
-              `\`help\` – this message\n\n` +
-              `Custom commands in \`data/custom_commands.json\``,
-          });
-          continue;
-        }
       }
     });
 
@@ -749,5 +764,21 @@ export async function startSession(id: string, label?: string) {
 }
 
 export async function startBot() {
-  await startSession("default", "Default");
+  // Restore all previously linked sessions
+  const list = loadSessionIds();
+  if (list.length === 0) {
+    console.log(`ℹ️ No saved sessions to restore. Create one via /admin`);
+    return;
+  }
+
+  console.log(`🔄 Restoring ${list.length} session(s)...`);
+  for (const { id, label } of list) {
+    try {
+      await startSession(id, label);
+      // Small delay between sessions to avoid rate limits
+      await new Promise(r => setTimeout(r, 1000));
+    } catch (e) {
+      console.error(`Failed to restore session ${id}:`, e);
+    }
+  }
 }

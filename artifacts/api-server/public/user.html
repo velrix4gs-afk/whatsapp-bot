@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Link Your WhatsApp</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #0f1117;
+            color: #e6e6e6;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: #1a1d26;
+            border: 1px solid #252933;
+            border-radius: 16px;
+            padding: 40px 30px;
+            width: 100%;
+            max-width: 420px;
+        }
+
+        h1 {
+            color: #00ff88;
+            font-size: 22px;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 30px;
+            line-height: 1.5;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 6px;
+            margin-top: 16px;
+        }
+
+        input {
+            width: 100%;
+            background: #0f1117;
+            border: 1px solid #252933;
+            color: #e6e6e6;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 15px;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: #00ff88;
+        }
+
+        .btn {
+            width: 100%;
+            background: #00ff88;
+            color: #0f1117;
+            border: none;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 24px;
+        }
+
+        .btn:hover {
+            background: #00cc6a;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn.secondary {
+            background: transparent;
+            color: #e6e6e6;
+            border: 1px solid #333;
+        }
+
+        .btn.secondary:hover {
+            background: #1a1d26;
+        }
+
+        .pairing-code {
+            background: #0f1117;
+            border: 2px solid #00ff88;
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            margin-top: 24px;
+        }
+
+        .pairing-code .code {
+            font-size: 34px;
+            font-weight: bold;
+            letter-spacing: 6px;
+            color: #00ff88;
+            font-family: monospace;
+            margin: 12px 0;
+        }
+
+        .pairing-code .hint {
+            font-size: 12px;
+            color: #888;
+            margin-top: 12px;
+            line-height: 1.6;
+        }
+
+        .error {
+            background: #ff475722;
+            border: 1px solid #ff4757;
+            color: #ff8888;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-top: 16px;
+        }
+
+        .success {
+            background: #00ff8822;
+            border: 1px solid #00ff88;
+            color: #00ff88;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-top: 16px;
+        }
+
+        .settings-panel {
+            margin-top: 24px;
+        }
+
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 0;
+            border-bottom: 1px solid #252933;
+        }
+
+        .toggle-row:last-child {
+            border-bottom: none;
+        }
+
+        .toggle-row span {
+            font-size: 14px;
+        }
+
+        .switch {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            background: #252933;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .switch.on {
+            background: #00ff88;
+        }
+
+        .switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: 0.2s;
+        }
+
+        .switch.on::after {
+            left: 22px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>🤖 Link Your WhatsApp</h1>
+        <p class="subtitle">Enter your phone number to link your WhatsApp account to the bot.</p>
+
+        <!-- Step 1: Phone input -->
+        <div id="step-phone">
+            <label>Your phone number (with country code)</label>
+            <input type="tel" id="phone" placeholder="e.g., 2348103077073" />
+            <button class="btn" id="submit-btn" onclick="linkPhone()">Get Pairing Code</button>
+            <div id="error" class="error" style="display:none;"></div>
+        </div>
+
+        <!-- Step 2: Pairing code -->
+        <div id="step-code" style="display:none;">
+            <div class="pairing-code">
+                <div style="font-size: 13px; color: #888;">Enter this code in WhatsApp</div>
+                <div class="code" id="code-text">--------</div>
+                <div class="hint">
+                    WhatsApp → Settings → Linked Devices → Link with Phone Number
+                </div>
+            </div>
+            <button class="btn secondary" onclick="location.reload()">Done</button>
+        </div>
+
+        <!-- Step 3: Settings (if already linked) -->
+        <div id="step-settings" style="display:none;">
+            <div class="success">✅ Your WhatsApp is linked!</div>
+            <div class="settings-panel" id="settings-list"></div>
+            <button class="btn secondary" style="margin-top: 20px;" onclick="location.reload()">Refresh</button>
+        </div>
+    </div>
+
+    <script>
+        const API = '/api';
+
+        // Grab phone from URL if provided (e.g., /user?phone=234...)
+        const urlParams = new URLSearchParams(location.search);
+        const phoneFromUrl = urlParams.get('phone');
+        if (phoneFromUrl) {
+            document.getElementById('phone').value = phoneFromUrl;
+        }
+
+        async function linkPhone() {
+            const phone = document.getElementById('phone').value.trim();
+            const errEl = document.getElementById('error');
+            const btn = document.getElementById('submit-btn');
+
+            if (!phone) {
+                errEl.textContent = 'Please enter your phone number.';
+                errEl.style.display = 'block';
+                return;
+            }
+
+            const sessionId = 'user_' + phone.replace(/\D/g, '');
+
+            btn.disabled = true;
+            btn.textContent = 'Checking...';
+            errEl.style.display = 'none';
+
+            try {
+                // Check if session already exists and is connected
+                const checkRes = await fetch(`${API}/sessions/${sessionId}`);
+                const checkData = await checkRes.json();
+
+                if (checkData.ok && checkData.session.status === 'connected') {
+                    // Already linked — show settings
+                    showSettings(checkData.session);
+                    return;
+                }
+
+                // Create a new session
+                const createRes = await fetch(`${API}/sessions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: sessionId, label: '+ ' + phone })
+                });
+                const createData = await createRes.json();
+                if (!createData.ok) throw new Error(createData.error || 'Failed to create session');
+
+                // Wait for socket to init
+                await new Promise(r => setTimeout(r, 2500));
+
+                // Request pairing code
+                const pairRes = await fetch(`${API}/sessions/${sessionId}/pairing`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone })
+                });
+                const pairData = await pairRes.json();
+                if (!pairData.ok) throw new Error(pairData.error || 'Failed to get pairing code');
+
+                // Show code
+                document.getElementById('step-phone').style.display = 'none';
+                document.getElementById('step-code').style.display = 'block';
+                document.getElementById('code-text').textContent = pairData.code;
+
+            } catch (e) {
+                errEl.textContent = e.message;
+                errEl.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = 'Get Pairing Code';
+            }
+        }
+
+        function showSettings(session) {
+            document.getElementById('step-phone').style.display = 'none';
+            document.getElementById('step-settings').style.display = 'block';
+
+            const settings = [
+                { key: 'viewOnce', label: '📸 Save view-once media' },
+                { key: 'autoReact', label: '❤️ Auto-like statuses' },
+                { key: 'autoPresence', label: '✍️ Show typing/recording' },
+                { key: 'antiDelete', label: '🗑️ Save deleted messages' },
+                { key: 'aiChat', label: '🤖 AI chat replies' },
+            ];
+
+            const container = document.getElementById('settings-list');
+            container.innerHTML = settings.map(s => `
+    <div class="toggle-row">
+      <span>${s.label}</span>
+      <div class="switch" data-key="${s.key}" onclick="toggleSetting(this)"></div>
+    </div>
+  `).join('');
+        }
+
+        async function toggleSetting(el) {
+            el.classList.toggle('on');
+            // TODO: call API to save setting
+        }
+
+        // Auto-check if the user is already linked when page loads
+        if (phoneFromUrl) {
+            linkPhone();
+        }
+    </script>
+</body>
+
+</html>

@@ -1,8 +1,11 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import path from "path";
+import fs from "fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import sessionsRouter from "./routes/sessions";
 
 const app: Express = express();
 
@@ -11,16 +14,10 @@ app.use(
     logger,
     serializers: {
       req(req) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
+        return { id: req.id, method: req.method, url: req.url?.split("?")[0] };
       },
       res(res) {
-        return {
-          statusCode: res.statusCode,
-        };
+        return { statusCode: res.statusCode };
       },
     },
   }),
@@ -29,6 +26,22 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+app.use("/api", sessionsRouter);
 app.use("/api", router);
+
+app.get("/admin", (_req, res) => {
+  const filePath = path.join(process.cwd(), "public", "admin.html");
+  if (fs.existsSync(filePath)) {
+    res.sendFile(filePath);
+  } else {
+    res.status(404).send("Dashboard not found. Expected at: " + filePath);
+  }
+});
+
+app.get("/user", (_req, res) => {
+  const filePath = path.join(process.cwd(), "public", "user.html");
+  if (fs.existsSync(filePath)) res.sendFile(filePath);
+  else res.status(404).send("User page not found");
+});
 
 export default app;

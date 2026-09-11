@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Bot Admin</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #0f1117;
+            color: #e6e6e6;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        header {
+            max-width: 1100px;
+            margin: 0 auto 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        h1 {
+            font-size: 24px;
+            color: #00ff88;
+        }
+
+        .btn {
+            background: #00ff88;
+            color: #0f1117;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .btn:hover {
+            background: #00cc6a;
+        }
+
+        .btn.secondary {
+            background: transparent;
+            color: #e6e6e6;
+            border: 1px solid #333;
+        }
+
+        .btn.secondary:hover {
+            background: #1a1d26;
+            border-color: #555;
+        }
+
+        .btn.danger {
+            background: #ff4757;
+            color: white;
+        }
+
+        .btn.danger:hover {
+            background: #d63447;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .grid {
+            max-width: 1100px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: #1a1d26;
+            border: 1px solid #252933;
+            border-radius: 12px;
+            padding: 20px;
+            transition: 0.2s;
+        }
+
+        .card:hover {
+            border-color: #00ff88;
+        }
+
+        .card h3 {
+            font-size: 16px;
+            margin-bottom: 8px;
+            word-break: break-word;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+        }
+
+        .status.connected {
+            background: #00ff8822;
+            color: #00ff88;
+        }
+
+        .status.qr {
+            background: #ffcc0022;
+            color: #ffcc00;
+        }
+
+        .status.connecting {
+            background: #3b82f622;
+            color: #3b82f6;
+        }
+
+        .status.disconnected {
+            background: #ff475722;
+            color: #ff4757;
+        }
+
+        .info {
+            font-size: 13px;
+            color: #888;
+            margin: 6px 0;
+        }
+
+        .info strong {
+            color: #e6e6e6;
+        }
+
+        .qr-container {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            text-align: center;
+        }
+
+        .qr-container img {
+            max-width: 220px;
+            width: 100%;
+            height: auto;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .actions .btn {
+            padding: 8px 14px;
+            font-size: 12px;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: #1a1d26;
+            border: 1px solid #252933;
+            border-radius: 16px;
+            padding: 30px;
+            width: 100%;
+            max-width: 440px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal h2 {
+            font-size: 20px;
+            margin-bottom: 20px;
+            color: #00ff88;
+        }
+
+        .modal label {
+            display: block;
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 6px;
+            margin-top: 14px;
+        }
+
+        .modal input {
+            width: 100%;
+            background: #0f1117;
+            border: 1px solid #252933;
+            color: #e6e6e6;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .modal input:focus {
+            border-color: #00ff88;
+        }
+
+        .modal .actions {
+            margin-top: 24px;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .pairing-code {
+            background: #0f1117;
+            border: 2px solid #00ff88;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .pairing-code .code {
+            font-size: 32px;
+            font-weight: bold;
+            letter-spacing: 4px;
+            color: #00ff88;
+            font-family: monospace;
+            margin: 10px 0;
+        }
+
+        .pairing-code .hint {
+            font-size: 12px;
+            color: #888;
+            margin-top: 10px;
+            line-height: 1.5;
+        }
+
+        .error {
+            background: #ff475722;
+            border: 1px solid #ff4757;
+            color: #ff8888;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-top: 15px;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 60px 20px;
+            color: #555;
+            grid-column: 1/-1;
+        }
+
+        .empty p {
+            margin-top: 10px;
+            font-size: 14px;
+        }
+
+        .refresh-badge {
+            font-size: 11px;
+            color: #555;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <div>
+            <h1>🤖 WhatsApp Bot Admin</h1>
+            <div class="refresh-badge" id="last-refresh">Auto-refreshes every 5s</div>
+        </div>
+        <button class="btn" onclick="openAddModal()">+ Add Session</button>
+    </header>
+
+    <div class="grid" id="sessions-grid">
+        <div class="empty">Loading sessions...</div>
+    </div>
+
+    <!-- Add Session Modal -->
+    <div class="modal-overlay" id="add-modal">
+        <div class="modal">
+            <h2>Add New Session</h2>
+
+            <div id="add-form-view">
+                <label>Label (optional)</label>
+                <input type="text" id="label-input" placeholder="e.g., My Work Number" />
+
+                <label>Phone Number</label>
+                <input type="tel" id="phone-input" placeholder="e.g., 2348103077073" />
+
+                <div class="actions">
+                    <button class="btn secondary" onclick="closeAddModal()">Cancel</button>
+                    <button class="btn" onclick="createSession()">Get Pairing Code</button>
+                </div>
+
+                <div id="add-error" class="error" style="display:none;"></div>
+            </div>
+
+            <div id="pairing-view" style="display:none;">
+                <div class="pairing-code">
+                    <div style="font-size:13px;color:#888;">Enter this code in WhatsApp</div>
+                    <div class="code" id="pairing-code-text">--------</div>
+                    <div class="hint">
+                        WhatsApp → Settings → Linked Devices → Link with Phone Number
+                    </div>
+                </div>
+                <div class="actions" style="justify-content:center;margin-top:20px;">
+                    <button class="btn" onclick="closeAddModal()">Done</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = '/api';
+
+        let currentSessionId = null;
+
+        async function fetchSessions() {
+            try {
+                const res = await fetch(`${API}/sessions`);
+                const data = await res.json();
+                if (data.ok) {
+                    renderSessions(data.sessions);
+                    document.getElementById('last-refresh').textContent =
+                        'Last refresh: ' + new Date().toLocaleTimeString();
+                }
+            } catch (e) {
+                console.error('Fetch failed:', e);
+            }
+        }
+
+        function renderSessions(sessions) {
+            const grid = document.getElementById('sessions-grid');
+
+            if (!sessions.length) {
+                grid.innerHTML = '<div class="empty"><h2>No sessions yet</h2><p>Click "Add Session" to get started.</p></div>';
+                return;
+            }
+
+            grid.innerHTML = sessions.map(s => `
+    <div class="card">
+      <h3>${escapeHtml(s.label || s.id)}</h3>
+      <span class="status ${s.status}">${s.status}</span>
+
+      ${s.phoneNumber ? `<div class="info">📱 <strong>+${s.phoneNumber}</strong></div>` : ''}
+      <div class="info">🆔 <strong>${escapeHtml(s.id)}</strong></div>
+      <div class="info">📁 Saved: <strong>${s.savedFiles?.length || 0}</strong></div>
+
+      ${s.qrDataUrl ? `<div class="qr-container"><img src="${s.qrDataUrl}" alt="QR" /></div>` : ''}
+
+      <div class="actions">
+        <button class="btn secondary" onclick="copyId('${s.id}')">Copy ID</button>
+        ${s.status !== 'connected' ? `<button class="btn danger" onclick="deleteSession('${s.id}')">Delete</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function copyId(id) {
+            navigator.clipboard.writeText(id);
+            alert('Session ID copied: ' + id);
+        }
+
+        async function deleteSession(id) {
+            if (!confirm(`Delete session "${id}"?\n\nThis will log out the WhatsApp account and delete its auth.`)) return;
+            try {
+                await fetch(`${API}/sessions/${id}`, { method: 'DELETE' });
+                fetchSessions();
+            } catch (e) {
+                alert('Delete failed: ' + e.message);
+            }
+        }
+
+        function openAddModal() {
+            currentSessionId = null;
+            document.getElementById('add-form-view').style.display = 'block';
+            document.getElementById('pairing-view').style.display = 'none';
+            document.getElementById('add-error').style.display = 'none';
+            document.getElementById('label-input').value = '';
+            document.getElementById('phone-input').value = '';
+            document.getElementById('add-modal').classList.add('active');
+        }
+
+        function closeAddModal() {
+            document.getElementById('add-modal').classList.remove('active');
+            fetchSessions();
+        }
+
+        async function createSession() {
+            const label = document.getElementById('label-input').value.trim();
+            const phone = document.getElementById('phone-input').value.trim();
+            const errEl = document.getElementById('add-error');
+
+            if (!phone) {
+                errEl.textContent = 'Please enter a phone number.';
+                errEl.style.display = 'block';
+                return;
+            }
+
+            const sessionId = `user_${phone.replace(/\D/g, '')}`;
+
+            errEl.style.display = 'none';
+
+            try {
+                // 1. Create the session
+                const createRes = await fetch(`${API}/sessions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: sessionId, label: label || `+${phone}` })
+                });
+                const createData = await createRes.json();
+                if (!createData.ok) throw new Error(createData.error || 'Failed to create session');
+
+                // 2. Wait a moment for the socket to initialize
+                await new Promise(r => setTimeout(r, 2500));
+
+                // 3. Request pairing code
+                const pairRes = await fetch(`${API}/sessions/${sessionId}/pairing`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone })
+                });
+                const pairData = await pairRes.json();
+                if (!pairData.ok) throw new Error(pairData.error || 'Failed to get pairing code');
+
+                // 4. Show the code
+                document.getElementById('add-form-view').style.display = 'none';
+                document.getElementById('pairing-view').style.display = 'block';
+                document.getElementById('pairing-code-text').textContent = pairData.code;
+            } catch (e) {
+                errEl.textContent = e.message;
+                errEl.style.display = 'block';
+            }
+        }
+
+        // Auto-refresh every 5 seconds
+        fetchSessions();
+        setInterval(fetchSessions, 5000);
+    </script>
+</body>
+
+</html>

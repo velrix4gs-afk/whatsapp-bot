@@ -21,7 +21,7 @@ import fs from "fs";
 const router = Router();
 
 function requireSession(req: Request, res: Response, next: NextFunction): void {
-  const auth  = req.headers["authorization"] ?? "";
+  const auth = req.headers["authorization"] ?? "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   const session = token ? getSession(token) : null;
   if (!session) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -38,20 +38,22 @@ router.get("/settings/auth-status", async (_req, res) => {
 // POST /api/settings/register
 router.post("/settings/register", async (req: Request, res: Response) => {
   const phone = String(req.body?.phone ?? "");
-  const pin   = String(req.body?.pin ?? "").trim();
+  const pin = String(req.body?.pin ?? "").trim();
   const label = req.body?.label ? String(req.body.label) : undefined;
   const result = await registerUser(phone, pin, label);
   if (!result.ok) { res.status(400).json({ error: result.error }); return; }
   const session = await verifyPinAndCreateSession(phone, pin);
   if (!session) { res.status(500).json({ error: "Account created but session failed — try logging in" }); return; }
-  res.json({ ok: true, token: session.token, phone: session.phone, isOwner: session.isOwner,
-    message: result.isOwner ? "Account created — you are the owner!" : "Account created — logged in." });
+  res.json({
+    ok: true, token: session.token, phone: session.phone, isOwner: session.isOwner,
+    message: result.isOwner ? "Account created — you are the owner!" : "Account created — logged in."
+  });
 });
 
 // POST /api/settings/pin-login
 router.post("/settings/pin-login", async (req: Request, res: Response) => {
   const phone = String(req.body?.phone ?? "");
-  const pin   = String(req.body?.pin ?? "").trim();
+  const pin = String(req.body?.pin ?? "").trim();
   if (!phone || !pin) { res.status(400).json({ error: "Phone number and PIN required" }); return; }
   const session = await verifyPinAndCreateSession(phone, pin);
   if (!session) { res.status(401).json({ error: "Wrong phone number or PIN" }); return; }
@@ -61,7 +63,7 @@ router.post("/settings/pin-login", async (req: Request, res: Response) => {
 // POST /api/settings/set-pin
 router.post("/settings/set-pin", requireSession, async (req: Request, res: Response) => {
   const sess = (req as Request & { user?: { phone: string } }).user!;
-  const pin  = String(req.body?.pin ?? "").trim();
+  const pin = String(req.body?.pin ?? "").trim();
   if (!pin || pin.length < 4) { res.status(400).json({ error: "PIN must be at least 4 characters" }); return; }
   const ok = await changeUserPin(sess.phone, pin);
   if (!ok) { res.status(404).json({ error: "User not found" }); return; }
@@ -77,11 +79,13 @@ router.get("/settings/users", requireSession, async (_req, res) => {
 // DELETE /api/settings/users/:phone
 router.delete("/settings/users/:phone", requireSession, async (req: Request, res: Response) => {
   const sess = (req as Request & { user?: { phone: string } }).user!;
-  const all  = await listUsers();
-  const me   = all.find(u => u.phone === sess.phone);
+  const all = await listUsers();
+  const me = all.find(u => u.phone === sess.phone);
   if (!me?.isOwner) { res.status(403).json({ error: "Only the owner can remove users" }); return; }
   if (req.params["phone"] === sess.phone) { res.status(400).json({ error: "Cannot remove your own account" }); return; }
-  const ok = await deleteUser(req.params["phone"] ?? "");
+  const rawPhone = req.params["phone"];
+  const phoneStr = Array.isArray(rawPhone) ? rawPhone[0] : (rawPhone ?? "");
+  const ok = await deleteUser(phoneStr);
   if (!ok) { res.status(404).json({ error: "User not found" }); return; }
   res.json({ ok: true });
 });
@@ -106,7 +110,7 @@ router.post("/settings/otp", async (req: Request, res: Response) => {
 // POST /api/settings/verify
 router.post("/settings/verify", (req: Request, res: Response) => {
   const phone = String(req.body?.phone ?? "").replace(/\D/g, "");
-  const code  = String(req.body?.code  ?? "").trim();
+  const code = String(req.body?.code ?? "").trim();
   const token = verifyOtpAndCreateSession(phone, code);
   if (!token) { res.status(401).json({ error: "Invalid or expired code" }); return; }
   res.json({ ok: true, token });
@@ -119,16 +123,16 @@ router.get("/settings", requireSession, (_req, res) => {
 
 // POST /api/settings
 router.post("/settings", requireSession, (req: Request, res: Response) => {
-  const body    = req.body as Partial<BotSettings>;
+  const body = req.body as Partial<BotSettings>;
   const current = loadSettings();
   const updated: BotSettings = {
-    features:          { ...current.features,          ...body.features },
-    reactionEmojis:    Array.isArray(body.reactionEmojis) && body.reactionEmojis.length > 0 ? body.reactionEmojis : current.reactionEmojis,
-    keywordReplies:    Array.isArray(body.keywordReplies)    ? body.keywordReplies    : current.keywordReplies,
-    welcomeMessage:    body.welcomeMessage    ?? current.welcomeMessage,
-    goodbyeMessage:    body.goodbyeMessage    ?? current.goodbyeMessage,
+    features: { ...current.features, ...body.features },
+    reactionEmojis: Array.isArray(body.reactionEmojis) && body.reactionEmojis.length > 0 ? body.reactionEmojis : current.reactionEmojis,
+    keywordReplies: Array.isArray(body.keywordReplies) ? body.keywordReplies : current.keywordReplies,
+    welcomeMessage: body.welcomeMessage ?? current.welcomeMessage,
+    goodbyeMessage: body.goodbyeMessage ?? current.goodbyeMessage,
     antiLinkWhitelist: Array.isArray(body.antiLinkWhitelist) ? body.antiLinkWhitelist : current.antiLinkWhitelist,
-    aiSystemPrompt:    body.aiSystemPrompt    ?? current.aiSystemPrompt,
+    aiSystemPrompt: body.aiSystemPrompt ?? current.aiSystemPrompt,
   };
   applySettings(updated);
   res.json({ ok: true, settings: updated });
