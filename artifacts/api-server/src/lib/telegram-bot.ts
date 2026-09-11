@@ -1,8 +1,6 @@
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const TelegramBot = require("node-telegram-bot-api");
+import { Bot } from "grammy";
 
-let bot: any = null;
+let bot: Bot | null = null;
 
 export function startTelegramBot(): void {
     const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -11,17 +9,11 @@ export function startTelegramBot(): void {
         return;
     }
 
-    bot = new TelegramBot(token, { polling: true });
+    bot = new Bot(token);
 
-    bot.on("polling_error", (err) => {
-        console.error("Telegram polling error:", err.message);
-    });
-
-    bot.onText(/\/start/, (msg) => {
-        const chatId = msg.chat.id;
-        const name = msg.from?.first_name ?? "there";
-        bot!.sendMessage(
-            chatId,
+    bot.command("start", async (ctx) => {
+        const name = ctx.from?.first_name ?? "there";
+        await ctx.reply(
             `👋 Hey ${name}!\n\n` +
             `I'm *Nova* — I manage your WhatsApp bot.\n\n` +
             `📱 *Commands:*\n` +
@@ -34,9 +26,8 @@ export function startTelegramBot(): void {
         );
     });
 
-    bot.onText(/\/help/, (msg) => {
-        bot!.sendMessage(
-            msg.chat.id,
+    bot.command("help", async (ctx) => {
+        await ctx.reply(
             `📖 *Available Commands*\n\n` +
             `/link — Link your WhatsApp number\n` +
             `/status — Check your link status\n` +
@@ -47,26 +38,32 @@ export function startTelegramBot(): void {
         );
     });
 
-    // Placeholder — we'll build these in Phase 2
-    bot.onText(/\/link/, (msg) => {
-        bot!.sendMessage(msg.chat.id, "🔧 Coming in Phase 2 — phone linking.");
+    bot.command("link", async (ctx) => {
+        await ctx.reply("🔧 Coming in Phase 2 — phone linking.");
     });
 
-    bot.onText(/\/status/, (msg) => {
-        bot!.sendMessage(msg.chat.id, "🔧 Coming in Phase 2 — status check.");
+    bot.command("status", async (ctx) => {
+        await ctx.reply("🔧 Coming in Phase 2 — status check.");
     });
 
-    bot.onText(/\/settings/, (msg) => {
-        bot!.sendMessage(msg.chat.id, "🔧 Coming in Phase 3 — settings menu.");
+    bot.command("settings", async (ctx) => {
+        await ctx.reply("🔧 Coming in Phase 3 — settings menu.");
     });
 
-    bot.onText(/\/unlink/, (msg) => {
-        bot!.sendMessage(msg.chat.id, "🔧 Coming in Phase 2 — unlink.");
+    bot.command("unlink", async (ctx) => {
+        await ctx.reply("🔧 Coming in Phase 2 — unlink.");
     });
 
-    console.log("✅ Telegram bot started (@nova_wa_bot)");
+    bot.catch((err) => {
+        console.error("Telegram bot error:", err);
+    });
+
+    // Start polling (non-blocking)
+    bot.start({
+        onStart: () => console.log("✅ Telegram bot started (@nova_wa_bot)"),
+    });
 }
 
-export function getBot(): TelegramBot | null {
+export function getBot(): Bot | null {
     return bot;
 }

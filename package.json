@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
+    "grammy": "^1.46.0",
     "node-telegram-bot-api": "^2.1.0",
     "sharp": "^0.34.5",
     "ws": "^8.21.3"
