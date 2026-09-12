@@ -1,9 +1,8 @@
-import { Bot, InlineKeyboard } from "grammy";
+import { Bot, InlineKeyboard, InputFile } from "grammy";
 import {
     startSession,
     requestPairingCode,
     getSessionState,
-    getAllSessions,
     deleteSession,
 } from "./whatsapp-bot";
 
@@ -87,12 +86,16 @@ export function startTelegramBot(): void {
         }
 
         const icon = session.status === "connected" ? "✅" : "⚠️";
-        await ctx.reply(
+        let msg =
             `${icon} *Status:* ${session.status}\n` +
             `📱 *Phone:* +${session.phoneNumber ?? state.phone ?? "unknown"}\n` +
-            `🆔 *Session:* \`${state.sessionId}\``,
-            { parse_mode: "Markdown" }
-        );
+            `🆔 *Session:* \`${state.sessionId}\``;
+
+        if (session.pairingCode && session.status !== "connected") {
+            msg += `\n\n🔢 *Pairing code:* \`${session.pairingCode}\``;
+        }
+
+        await ctx.reply(msg, { parse_mode: "Markdown" });
     });
 
     // ── /settings ─────────────────────────────────────────────────────
@@ -165,33 +168,29 @@ export function startTelegramBot(): void {
         const [action, phone] = data.split(":");
         const sessionId = `user_${phone}`;
 
-        await ctx.answerCallbackQuery(); // remove loading spinner
+        await ctx.answerCallbackQuery();
 
         try {
-            // Start the WhatsApp session
-            startSession(sessionId, `+${phone}`).catch((err) => {
-                console.error(`Session ${sessionId} start error:`, err);
-            });
-
-            // Wait for session to initialize
-            await new Promise((r) => setTimeout(r, 3000));
-
-            const session = getSessionState(sessionId);
-            if (!session) {
-                await ctx.reply(`❌ Failed to start session. Try again.`);
-                return;
-            }
-
             if (action === "qr") {
-                if (!session.qrDataUrl) {
-                    await ctx.reply(`⚠️ QR not ready yet. Wait 10 seconds and try again.`);
+                // Start session WITHOUT pairing phone (QR flow)
+                startSession(sessionId, `+${phone}`).catch((err) => {
+                    console.error(`Session ${sessionId} start error:`, err);
+                });
+
+                // Wait for QR to be generated
+                await new Promise((r) => setTimeout(r, 3000));
+
+                const session = getSessionState(sessionId);
+                if (!session?.qrDataUrl) {
+                    await ctx.reply(`⚠️ QR not ready yet. Wait 5 seconds and try again.`);
                     return;
                 }
-                // Convert data URL to buffer
+
                 const base64 = session.qrDataUrl.split(",")[1];
                 const buffer = Buffer.from(base64, "base64");
+
                 await ctx.replyWithPhoto(
-                    { source: buffer },
+                    new InputFile(buffer, "qr.png"),
                     {
                         caption:
                             `🔳 *Scan this QR code*\n\n` +
@@ -200,21 +199,32 @@ export function startTelegramBot(): void {
                     }
                 );
             } else if (action === "pair") {
-                try {
-                    const code = await requestPairingCode(sessionId, phone);
-                    await ctx.reply(
-                        `🔢 *Pairing Code*\n\n` +
-                        `\`${code}\`\n\n` +
-                        `WhatsApp → Settings → Linked Devices → Link with Phone Number\n\n` +
-                        `_Enter the code above when prompted._`,
-                        { parse_mode: "Markdown" }
-                    );
-                } catch (e) {
-                    await ctx.reply(`❌ Failed to get pairing code: ${(e as Error).message}`);
+                // Start session WITH pairing phone (pairing code flow)
+                startSession(sessionId, `+${phone}`, phone).catch((err) => {
+                    console.error(`Session ${sessionId} start error:`, err);
+                });
+
+                // Wait for pairing code
+                await new Promise((r) => setTimeout(r, 5000));
+
+                const session = getSessionState(sessionId);
+                const code = session?.pairingCode;
+
+                if (!code) {
+                    await ctx.reply(`⚠️ Pairing code not ready yet. Wait 5 seconds and try /status, or click again.`);
+                    return;
                 }
+
+                await ctx.reply(
+                    `🔢 *Pairing Code*\n\n` +
+                    `\`${code}\`\n\n` +
+                    `WhatsApp → Settings → Linked Devices → Link with Phone Number\n\n` +
+                    `_Enter the code above when prompted._`,
+                    { parse_mode: "Markdown" }
+                );
             }
 
-            // Clear stage after successful flow
+            // Clear stage
             const state = userState.get(chatId);
             if (state) {
                 state.stage = undefined;

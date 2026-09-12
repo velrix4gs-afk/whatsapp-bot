@@ -123,7 +123,10 @@ export function stopSession(id: string): void {
 
 export async function requestPairingCode(id: string, phone: string): Promise<string> {
   const s = sessions.get(id);
-  if (!s?._sock) throw new Error("Session not connected yet (waiting for QR)");
+  if (!s) throw new Error("Session not found");
+  // If we already have a code from startSession, return it
+  if (s.pairingCode) return s.pairingCode;
+  if (!s._sock) throw new Error("Session not ready yet — try again in 5 seconds");
   const cleanPhone = phone.replace(/\D/g, "");
   if (cleanPhone.length < 10) throw new Error("Invalid phone number");
   const code = await s._sock.requestPairingCode(cleanPhone);
@@ -531,7 +534,7 @@ async function handleVv(
 }
 
 // ── SESSION ──────────────────────────────────────────────────────────────────
-export async function startSession(id: string, label?: string) {
+export async function startSession(id: string, label?: string, pairingPhone?: string) {
   let state = sessions.get(id);
   if (!state) {
     state = {
@@ -587,6 +590,19 @@ export async function startSession(id: string, label?: string) {
 
     state._sock = sock;
     sock.ev.on("creds.update", saveCreds);
+    // If pairing phone is provided, request pairing code immediately
+    if (pairingPhone && !authState.creds.registered) {
+      try {
+        // small delay to ensure socket is fully ready
+        await new Promise(r => setTimeout(r, 1500));
+        const cleanPhone = pairingPhone.replace(/\D/g, "");
+        const code = await sock.requestPairingCode(cleanPhone);
+        state.pairingCode = code;
+        addLog(state, `🔢 Pairing code for +${cleanPhone}: ${code}`);
+      } catch (e) {
+        addLog(state, `❌ Pairing code request failed: ${(e as Error).message}`);
+      }
+    }
 
     sock.ev.on("connection.update", async (update) => {
       const { connection, lastDisconnect, qr } = update;
