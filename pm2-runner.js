@@ -1,6 +1,6 @@
 const { spawn } = require('child_process');
 
-const child = spawn('cmd.exe', ['/c', 'E:\\PROJECT FOLDER\\whatsapp bot\\start-bot.bat'], {
+const child = spawn('cmd.exe', ['/c', 'C:\\Users\\NOVA-JINX\\Documents\\git folders\\whatsapp-bot\\start-bot.bat'], {
     stdio: 'inherit',
     shell: false,
 });

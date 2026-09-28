@@ -1,5 +1,5 @@
 @echo off
-cd /d "E:\PROJECT FOLDER\whatsapp bot\artifacts\api-server"
+cd /d "C:\Users\NOVA-JINX\Documents\git folders\whatsapp-bot\artifacts\api-server"
 set PORT=8080
 set NODE_ENV=development
 set DATABASE_URL=postgresql://postgres:JFULTaSXydR1Rbfx@db.gurjbnsxynphlqckajoi.supabase.co:5432/postgres
