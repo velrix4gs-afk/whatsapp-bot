@@ -216,7 +216,7 @@ export function startTelegramBot(): void {
                     console.error(`Session ${sessionId} start error:`, err);
                 });
 
-                await new Promise((r) => setTimeout(r, 8000));
+                await new Promise((r) => setTimeout(r, 3000));
 
                 const session = getSessionState(sessionId);
                 const code = session?.pairingCode;

@@ -95,6 +95,7 @@ export function getSessionState(id: string) {
     label: s.label,
     status: s.status,
     qrDataUrl: s.qrDataUrl,
+    pairingCode: s.pairingCode,       // ← ADDED THIS
     phoneNumber: s.phoneNumber,
     savedFiles: s.savedFiles,
     log: s.log,
@@ -548,6 +549,7 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
       _stopRequested: false,
       _retryCount: 0,
       _starting: false,
+      _pairingRequested: false,      // ← ADD THIS
       savedFiles: [],
       log: [],
     };
@@ -559,6 +561,17 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
     return;
   }
   state._starting = true;
+
+  // Clean up any existing socket before starting a fresh one
+  if (state._sock) {
+    try {
+      state._sock.ev.removeAllListeners("messages.upsert");
+      state._sock.ev.removeAllListeners("connection.update");
+      state._sock.ev.removeAllListeners("creds.update");
+      state._sock.end(undefined);
+    } catch { }
+    state._sock = null;
+  }
 
   const authDir = path.join(BASE_DIR, "sessions", id, "auth");
   fs.mkdirSync(authDir, { recursive: true });
@@ -576,7 +589,7 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
         creds: authState.creds,
         keys: makeCacheableSignalKeyStore(authState.keys, logger),
       },
-      browser: Browsers.ubuntu("Chrome"),
+      browser: Browsers.ubuntu(`NovaBot-${id}`),
       printQRInTerminal: false,
       syncFullHistory: false,
       connectTimeoutMs: 30_000,
@@ -590,42 +603,63 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
 
     state._sock = sock;
     sock.ev.on("creds.update", saveCreds);
-    // If pairing phone is provided, request pairing code immediately
-    if (pairingPhone && !authState.creds.registered) {
-      try {
-        // small delay to ensure socket is fully ready
-        await new Promise(r => setTimeout(r, 1500));
-        const cleanPhone = pairingPhone.replace(/\D/g, "");
-        const code = await sock.requestPairingCode(cleanPhone);
-        state.pairingCode = code;
-        addLog(state, `🔢 Pairing code for +${cleanPhone}: ${code}`);
-      } catch (e) {
-        addLog(state, `❌ Pairing code request failed: ${(e as Error).message}`);
-      }
-    }
+
 
     sock.ev.on("connection.update", async (update) => {
       const { connection, lastDisconnect, qr } = update;
       if (qr) {
-        try {
-          const { default: QRCode } = await import("qrcode");
-          state.qrDataUrl = await QRCode.toDataURL(qr, { width: 300 });
-        } catch { }
-        state.status = "qr";
-        addLog(state, "QR code ready");
+        // If we're doing pairing-code mode, ignore QR entirely
+        if (pairingPhone) {
+          addLog(state, "⏭️ QR received but in pairing mode — ignoring");
+        } else {
+          try {
+            const { default: QRCode } = await import("qrcode");
+            state.qrDataUrl = await QRCode.toDataURL(qr, { width: 300 });
+          } catch { }
+          state.status = "qr";
+          addLog(state, "QR code ready");
+        }
+
+        // Request pairing code once we know the socket is ready
+        if (pairingPhone && !state._pairingRequested && !authState.creds.registered) {
+          state._pairingRequested = true;
+          try {
+            const cleanPhone = pairingPhone.replace(/\D/g, "");
+            const code = await sock.requestPairingCode(cleanPhone);
+            state.pairingCode = code;
+            addLog(state, `🔢 Pairing code for +${cleanPhone}: ${code}`);
+          } catch (e) {
+            addLog(state, `❌ Pairing failed: ${(e as Error).message}`);
+            state._pairingRequested = false;
+          }
+        }
       }
       if (connection === "open") {
         state.status = "connected";
         state.qrDataUrl = null;
         state.phoneNumber = sock.user?.id?.split(":")[0] || null;
         state._starting = false;
+        state._pairingRequested = false;
         addLog(state, `✅ Connected as +${state.phoneNumber}`);
       }
       if (connection === "close") {
         const err = lastDisconnect?.error as Boom | undefined;
         const code = err?.output?.statusCode ?? 0;
+
+        // If a pairing code is pending, don't auto-reconnect — it invalidates the code
+        if (state.pairingCode && !authState.creds.registered) {
+          addLog(state, "⏸️ Socket closed during pairing — NOT reconnecting");
+          state.status = "disconnected";
+          state._sock = null;
+          state._starting = false;
+          return;
+        }
+
         state.status = "disconnected";
         state._sock = null;
+        state._starting = false;
+        state._pairingRequested = false;
+
         if (code === DisconnectReason.loggedOut) {
           addLog(state, "Logged out – clearing auth");
           fs.rmSync(authDir, { recursive: true, force: true });
@@ -641,12 +675,20 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
     });
 
     // ── Auto‑reconnect monitor ──────────────────────────────────────────
+    // ── Auto‑reconnect monitor ──────────────────────────────────────────
     setInterval(async () => {
       try {
         const st = sessions.get(id);
-        if (!st || st.status !== "connected") return;
+        if (!st) return;
+
+        // Skip if not connected, already starting, or waiting for pairing
+        if (st.status !== "connected") return;
+        if (st._starting) return;
+        if (st.pairingCode) return;
+
         const s = st._sock;
         if (!s) return;
+
         if (!s.user) {
           addLog(st, "⚠️ Socket user missing – restarting session");
           st._sock = null;
@@ -654,10 +696,13 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
           await startSession(id);
           return;
         }
+
         await s.sendPresenceUpdate("available");
       } catch (err) {
         const st = sessions.get(id);
-        if (!st) return;
+        if (!st || st._starting) return;
+        if (st.pairingCode) return;   // don't restart while pairing pending
+
         addLog(st, `⚠️ Health check failed: ${(err as Error).message} – restarting`);
         st._sock = null;
         st.status = "disconnected";
@@ -666,7 +711,7 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
     }, 60_000);
 
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
-      console.log(`🔥 MESSAGES.UPSERT type=${type}, count=${messages.length}`);
+      console.log(`🔥 [${id}] MESSAGES.UPSERT type=${type}, count=${messages.length}`);
 
       for (const msg of messages) {
         if (!msg.message) continue;
