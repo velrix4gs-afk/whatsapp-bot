@@ -1,10 +1,10 @@
 import { Bot, InlineKeyboard, InputFile } from "grammy";
 import {
-    startSession,
-    requestPairingCode,
-    getSessionState,
-    deleteSession,
-} from "./whatsapp-bot";
+    spawnWorker,
+    killWorker,
+    getWorker,
+    getAllWorkers,
+} from "./manager";
 
 let bot: Bot | null = null;
 
@@ -14,7 +14,6 @@ const userState = new Map<number, {
     stage?: "awaiting_phone";
 }>();
 
-/** Watch a session — when it becomes "connected", delete the given Telegram message */
 function watchAndDeleteOnConnect(
     sessionId: string,
     chatId: number,
@@ -24,16 +23,14 @@ function watchAndDeleteOnConnect(
     let tries = 0;
     const interval = setInterval(async () => {
         tries++;
-        if (tries > 100) { clearInterval(interval); return; } // 5 min max
+        if (tries > 100) { clearInterval(interval); return; }
 
-        const session = getSessionState(sessionId);
-        if (!session) return;
+        const w = getWorker(sessionId);
+        if (!w) return;
 
-        if (session.status === "connected") {
+        if (w.status === "connected") {
             clearInterval(interval);
-            try {
-                await bot!.api.deleteMessage(chatId, messageId);
-            } catch { }
+            try { await bot!.api.deleteMessage(chatId, messageId); } catch { }
             try {
                 await bot!.api.sendMessage(chatId, successMsg, { parse_mode: "Markdown" });
             } catch { }
@@ -58,7 +55,6 @@ export function startTelegramBot(): void {
             `📱 *Commands:*\n` +
             `/link — Link your WhatsApp number\n` +
             `/status — Check your link status\n` +
-            `/settings — Manage your features\n` +
             `/unlink — Disconnect your WhatsApp\n` +
             `/help — Show this menu`,
             { parse_mode: "Markdown" }
@@ -70,7 +66,6 @@ export function startTelegramBot(): void {
             `📖 *Available Commands*\n\n` +
             `/link — Link your WhatsApp number\n` +
             `/status — Check your link status\n` +
-            `/settings — Manage your features\n` +
             `/unlink — Disconnect your WhatsApp\n` +
             `/help — Show this menu`,
             { parse_mode: "Markdown" }
@@ -83,8 +78,7 @@ export function startTelegramBot(): void {
         await ctx.reply(
             `📱 *Link Your WhatsApp*\n\n` +
             `Send me your WhatsApp number with country code.\n\n` +
-            `*Example:* \`2348103077073\`\n` +
-            `_(no spaces, no +, no dashes)_`,
+            `*Example:* \`2348103077073\``,
             { parse_mode: "Markdown" }
         );
     });
@@ -92,28 +86,29 @@ export function startTelegramBot(): void {
     bot.command("status", async (ctx) => {
         const chatId = ctx.chat.id;
         const state = userState.get(chatId);
-        if (!state?.sessionId) {
-            await ctx.reply(`❌ You don't have a linked number yet.\n\nUse /link to get started.`);
-            return;
-        }
-        const session = getSessionState(state.sessionId);
-        if (!session) {
-            await ctx.reply(`❌ Session not found. Try /link again.`);
-            return;
-        }
-        const icon = session.status === "connected" ? "✅" : "⚠️";
-        let msg =
-            `${icon} *Status:* ${session.status}\n` +
-            `📱 *Phone:* +${session.phoneNumber ?? state.phone ?? "unknown"}\n` +
-            `🆔 *Session:* \`${state.sessionId}\``;
-        if (session.pairingCode && session.status !== "connected") {
-            msg += `\n\n🔢 *Pairing code:* \`${session.pairingCode}\``;
-        }
-        await ctx.reply(msg, { parse_mode: "Markdown" });
-    });
 
-    bot.command("settings", async (ctx) => {
-        await ctx.reply("🔧 Coming soon — settings menu.");
+        if (!state?.sessionId) {
+            await ctx.reply(`❌ You don't have a linked number yet. Use /link.`);
+            return;
+        }
+
+        const w = getWorker(state.sessionId);
+        if (!w) {
+            await ctx.reply(`❌ No active worker. Try /link again.`);
+            return;
+        }
+
+        const icon = w.status === "connected" ? "✅" : "⚠️";
+        let msg =
+            `${icon} *Status:* ${w.status}\n` +
+            `📱 *Phone:* +${w.phoneNumber ?? state.phone ?? "unknown"}\n` +
+            `🆔 *Session:* \`${w.sessionId}\``;
+
+        if (w.pairingCode && w.status !== "connected") {
+            msg += `\n\n🔢 *Pairing code:* \`${w.pairingCode}\``;
+        }
+
+        await ctx.reply(msg, { parse_mode: "Markdown" });
     });
 
     bot.command("unlink", async (ctx) => {
@@ -123,16 +118,12 @@ export function startTelegramBot(): void {
             await ctx.reply(`❌ Nothing to unlink.`);
             return;
         }
-        try {
-            deleteSession(state.sessionId);
-            userState.delete(chatId);
-            await ctx.reply(`✅ WhatsApp unlinked.`);
-        } catch (e) {
-            await ctx.reply(`❌ Failed: ${(e as Error).message}`);
-        }
+        killWorker(state.sessionId);
+        userState.delete(chatId);
+        await ctx.reply(`✅ WhatsApp unlinked.`);
     });
 
-    // ── Phone number input ────────────────────────────────────────────
+    // Phone number input
     bot.on("message:text", async (ctx) => {
         const chatId = ctx.chat.id;
         const text = ctx.message.text.trim();
@@ -142,7 +133,7 @@ export function startTelegramBot(): void {
         const cleanPhone = text.replace(/\D/g, "");
         if (cleanPhone.length < 10) {
             await ctx.reply(
-                `❌ Invalid number. Send it like: \`2348103077073\`\n_(digits only, with country code)_`,
+                `❌ Invalid number. Send it like: \`2348103077073\``,
                 { parse_mode: "Markdown" }
             );
             return;
@@ -163,7 +154,7 @@ export function startTelegramBot(): void {
         );
     });
 
-    // ── Button clicks ─────────────────────────────────────────────────
+    // Button clicks
     bot.on("callback_query:data", async (ctx) => {
         const data = ctx.callbackQuery.data;
         const chatId = ctx.chat?.id;
@@ -175,23 +166,20 @@ export function startTelegramBot(): void {
         await ctx.answerCallbackQuery();
 
         try {
-            deleteSession(sessionId);
+            killWorker(sessionId);
             await new Promise((r) => setTimeout(r, 500));
 
             if (action === "qr") {
-                startSession(sessionId, `+${phone}`).catch((err) => {
-                    console.error(`Session ${sessionId} start error:`, err);
-                });
-
+                spawnWorker(sessionId);
                 await new Promise((r) => setTimeout(r, 6000));
 
-                const session = getSessionState(sessionId);
-                if (!session?.qrDataUrl) {
+                const w = getWorker(sessionId);
+                if (!w?.qrDataUrl) {
                     await ctx.reply(`⚠️ QR not ready. Wait 5 seconds and try again.`);
                     return;
                 }
 
-                const base64 = session.qrDataUrl.split(",")[1];
+                const base64 = w.qrDataUrl.split(",")[1];
                 const buffer = Buffer.from(base64, "base64");
 
                 const sent = await ctx.replyWithPhoto(
@@ -200,7 +188,7 @@ export function startTelegramBot(): void {
                         caption:
                             `🔳 *Scan this QR code*\n\n` +
                             `WhatsApp → Settings → Linked Devices → Link a Device\n\n` +
-                            `_This message will auto-delete once linked._`,
+                            `_This message auto-deletes once linked._`,
                         parse_mode: "Markdown",
                     }
                 );
@@ -212,18 +200,15 @@ export function startTelegramBot(): void {
                     `✅ *WhatsApp linked successfully!*\n\nYou can now use the bot from +${phone}.`
                 );
             } else if (action === "pair") {
-                startSession(sessionId, `+${phone}`, phone).catch((err) => {
-                    console.error(`Session ${sessionId} start error:`, err);
-                });
-
+                spawnWorker(sessionId, phone);
                 await new Promise((r) => setTimeout(r, 3000));
 
-                const session = getSessionState(sessionId);
-                const code = session?.pairingCode;
+                const w = getWorker(sessionId);
+                const code = w?.pairingCode;
 
                 if (!code) {
                     await ctx.reply(
-                        `⚠️ Pairing code not ready.\n\nTry again in 5 seconds, or use /status.`
+                        `⚠️ Pairing code not ready.\n\nTry again in 3 seconds, or use /status.`
                     );
                     return;
                 }
@@ -232,7 +217,7 @@ export function startTelegramBot(): void {
                     `🔢 *Pairing Code*\n\n` +
                     `\`${code}\`\n\n` +
                     `WhatsApp → Settings → Linked Devices → Link with Phone Number\n\n` +
-                    `_This message will auto-delete once linked._`,
+                    `_Enter this code FAST — it expires in ~20 seconds._`,
                     { parse_mode: "Markdown" }
                 );
 
