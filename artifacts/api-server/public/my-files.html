@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Files – WhatsApp Bot</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #0f1117;
+            color: #e6e6e6;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        /* Login */
+        .login-box {
+            background: #1a1d26;
+            border: 1px solid #252933;
+            border-radius: 16px;
+            padding: 40px 30px;
+            max-width: 420px;
+            margin: 80px auto;
+        }
+
+        .login-box h1 {
+            color: #00ff88;
+            font-size: 22px;
+            margin-bottom: 6px;
+        }
+
+        .login-box .sub {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 6px;
+            margin-top: 16px;
+        }
+
+        input {
+            width: 100%;
+            background: #0f1117;
+            border: 1px solid #252933;
+            color: #e6e6e6;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 15px;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: #00ff88;
+        }
+
+        .btn {
+            width: 100%;
+            background: #00ff88;
+            color: #0f1117;
+            border: none;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 24px;
+        }
+
+        .btn:hover {
+            background: #00cc6a;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .error {
+            background: #ff475722;
+            border: 1px solid #ff4757;
+            color: #ff8888;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-top: 16px;
+            display: none;
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        h1 {
+            color: #00ff88;
+            font-size: 22px;
+        }
+
+        .phone-display {
+            color: #888;
+            font-size: 13px;
+            margin-top: 4px;
+        }
+
+        .btn-sm {
+            background: transparent;
+            color: #e6e6e6;
+            border: 1px solid #333;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .btn-sm:hover {
+            background: #1a1d26;
+            border-color: #555;
+        }
+
+        /* Grid */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .file-card {
+            background: #1a1d26;
+            border: 1px solid #252933;
+            border-radius: 12px;
+            overflow: hidden;
+            transition: 0.2s;
+        }
+
+        .file-card:hover {
+            border-color: #00ff88;
+        }
+
+        .file-card .preview {
+            background: #0a0c10;
+            height: 180px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .file-card .preview img,
+        .file-card .preview video {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: cover;
+        }
+
+        .file-card .preview .icon {
+            font-size: 48px;
+            color: #444;
+        }
+
+        .file-card .info {
+            padding: 12px;
+        }
+
+        .file-card .name {
+            font-size: 12px;
+            word-break: break-all;
+            color: #ccc;
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+
+        .file-card .meta {
+            font-size: 11px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .file-card .actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        .file-card .actions a {
+            flex: 1;
+            text-align: center;
+            background: #00ff88;
+            color: #0f1117;
+            padding: 6px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .file-card .actions a:hover {
+            background: #00cc6a;
+        }
+
+        .file-card .actions a.secondary {
+            background: transparent;
+            color: #aaa;
+            border: 1px solid #333;
+        }
+
+        .file-card .actions a.secondary:hover {
+            color: #fff;
+            border-color: #666;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 60px 20px;
+            color: #555;
+            grid-column: 1/-1;
+        }
+
+        .empty h2 {
+            font-size: 18px;
+            margin-bottom: 8px;
+            color: #666;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: #666;
+            grid-column: 1/-1;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <!-- Login view -->
+        <div class="login-box" id="login-view">
+            <h1>📁 My Files</h1>
+            <p class="sub">Login with your WhatsApp number and PIN</p>
+
+            <label>Phone number (with country code)</label>
+            <input type="tel" id="phone" placeholder="e.g., 2348103077073" />
+
+            <label>4-digit PIN</label>
+            <input type="password" id="pin" maxlength="4" inputmode="numeric" placeholder="••••" />
+
+            <button class="btn" id="login-btn" onclick="login()">Login</button>
+            <div class="error" id="login-error"></div>
+        </div>
+
+        <!-- Files view -->
+        <div id="files-view" style="display:none;">
+            <header>
+                <div>
+                    <h1>📁 My Saved Files</h1>
+                    <div class="phone-display" id="phone-display"></div>
+                </div>
+                <div>
+                    <button class="btn-sm" onclick="refresh()">🔄 Refresh</button>
+                    <button class="btn-sm" onclick="logout()">Logout</button>
+                </div>
+            </header>
+
+            <div class="grid" id="files-grid"></div>
+        </div>
+    </div>
+
+    <script>
+        const API = '/api';
+
+        function fmtSize(bytes) {
+            if (!bytes) return "—";
+            if (bytes < 1024) return bytes + " B";
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+            return (bytes / 1024 / 1024).toFixed(2) + " MB";
+        }
+
+        function fmtDate(iso) {
+            if (!iso) return "—";
+            const d = new Date(iso);
+            return d.toLocaleString();
+        }
+
+        async function login() {
+            const phone = document.getElementById('phone').value.trim();
+            const pin = document.getElementById('pin').value.trim();
+            const errEl = document.getElementById('login-error');
+            const btn = document.getElementById('login-btn');
+
+            errEl.style.display = 'none';
+
+            if (!phone || !pin) {
+                errEl.textContent = 'Enter your phone number and PIN.';
+                errEl.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Logging in...';
+
+            try {
+                localStorage.setItem('phone', phone);
+                localStorage.setItem('pin', pin);
+
+                const res = await fetch(`${API}/user/files`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone, pin }),
+                });
+                const data = await res.json();
+
+                if (!data.ok) throw new Error(data.error || 'Login failed');
+
+                showFiles(data.files, phone);
+            } catch (e) {
+                errEl.textContent = e.message;
+                errEl.style.display = 'block';
+                localStorage.removeItem('phone');
+                localStorage.removeItem('pin');
+                btn.disabled = false;
+                btn.textContent = 'Login';
+            }
+        }
+
+        async function refresh() {
+            const phone = localStorage.getItem('phone');
+            const pin = localStorage.getItem('pin');
+            if (!phone || !pin) return logout();
+
+            const grid = document.getElementById('files-grid');
+            grid.innerHTML = '<div class="loading">Loading...</div>';
+
+            try {
+                const res = await fetch(`${API}/user/files`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone, pin }),
+                });
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error);
+                renderFiles(data.files);
+            } catch (e) {
+                grid.innerHTML = `<div class="empty"><h2>Error</h2><p>${e.message}</p></div>`;
+            }
+        }
+
+        function showFiles(files, phone) {
+            document.getElementById('login-view').style.display = 'none';
+            document.getElementById('files-view').style.display = 'block';
+            document.getElementById('phone-display').textContent = '+' + phone.replace(/\D/g, '');
+            renderFiles(files);
+        }
+
+        function renderFiles(files) {
+            const grid = document.getElementById('files-grid');
+
+            if (!files || files.length === 0) {
+                grid.innerHTML = '<div class="empty"><h2>No files yet</h2><p>Save a view-once or status to see files here.</p></div>';
+                return;
+            }
+
+            grid.innerHTML = files.map(f => {
+                let preview = '<div class="icon">📄</div>';
+                if (f.type === 'image') {
+                    preview = `<img src="${f.url}" loading="lazy" alt="${f.name}" />`;
+                } else if (f.type === 'video') {
+                    preview = `<video src="${f.url}" muted preload="metadata"></video>`;
+                } else if (f.type === 'audio') {
+                    preview = '<div class="icon">🎵</div>';
+                }
+
+                const name = f.name.length > 30 ? f.name.slice(0, 27) + '...' : f.name;
+
+                return `
+      <div class="file-card">
+        <div class="preview">${preview}</div>
+        <div class="info">
+          <div class="name">${name}</div>
+          <div class="meta">${fmtSize(f.size)} • ${fmtDate(f.created_at)}</div>
+          <div class="actions">
+            <a href="${f.url}" target="_blank" rel="noopener">View</a>
+            <a href="${f.url}" download class="secondary">⬇</a>
+          </div>
+        </div>
+      </div>
+    `;
+            }).join('');
+        }
+
+        function logout() {
+            localStorage.removeItem('phone');
+            localStorage.removeItem('pin');
+            location.reload();
+        }
+
+        // Auto-login if saved
+        (function () {
+            const phone = localStorage.getItem('phone');
+            const pin = localStorage.getItem('pin');
+            if (phone && pin) {
+                document.getElementById('phone').value = phone;
+                document.getElementById('pin').value = pin;
+                login();
+            }
+        })();
+    </script>
+</body>
+
+</html>

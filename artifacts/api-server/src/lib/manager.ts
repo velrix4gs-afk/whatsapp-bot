@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "child_process";
 import path from "path";
+import { EventEmitter } from "events";
 
 export interface WorkerInfo {
     sessionId: string;
@@ -13,19 +14,18 @@ export interface WorkerInfo {
     restartCount: number;
 }
 
+// Global event emitter for workers
+export const workerEvents = new EventEmitter();
+
 const workers = new Map<string, WorkerInfo>();
 
-// Worker path is relative to current working directory
-// (the bot runs from artifacts/api-server, so worker.ts is in src/)
 const WORKER_PATH = path.join(process.cwd(), "src", "worker.ts");
 
 export function spawnWorker(sessionId: string, phone?: string): WorkerInfo {
-    // Kill existing worker if any
     if (workers.has(sessionId)) {
         killWorker(sessionId);
     }
 
-    // Spawn node directly with tsx as ESM loader — no shell, no orphaned processes
     const child = spawn(
         process.execPath,
         ["--import", "tsx", WORKER_PATH],
@@ -54,8 +54,6 @@ export function spawnWorker(sessionId: string, phone?: string): WorkerInfo {
     // ── Message handler ────────────────────────────────────────────────
     child.on("message", (msg: any) => {
         if (!msg || typeof msg !== "object") return;
-
-        // Ignore messages from stale workers
         if (workers.get(sessionId) !== info) return;
 
         switch (msg.type) {
@@ -69,6 +67,7 @@ export function spawnWorker(sessionId: string, phone?: string): WorkerInfo {
                     .then(({ default: QRCode }) =>
                         QRCode.toDataURL(msg.qr, { width: 300 }).then((url) => {
                             info.qrDataUrl = url;
+                            workerEvents.emit(`qr:${sessionId}`, url);
                         })
                     )
                     .catch(() => { });
@@ -76,6 +75,12 @@ export function spawnWorker(sessionId: string, phone?: string): WorkerInfo {
 
             case "pairing":
                 info.pairingCode = msg.code;
+                console.log(`📤 Emitting pairing event for ${sessionId}: ${msg.code}`);
+                workerEvents.emit(`pairing:${sessionId}`, msg.code);
+                break;
+
+            case "pairing_error":
+                workerEvents.emit(`pairing_error:${sessionId}`, msg.error);
                 break;
 
             case "connected":
@@ -83,6 +88,7 @@ export function spawnWorker(sessionId: string, phone?: string): WorkerInfo {
                 info.phoneNumber = msg.phoneNumber;
                 info.qrDataUrl = undefined;
                 info.restartCount = 0;
+                workerEvents.emit(`connected:${sessionId}`, msg.phoneNumber);
                 break;
 
             case "disconnected":
@@ -103,7 +109,6 @@ export function spawnWorker(sessionId: string, phone?: string): WorkerInfo {
 
     // ── Exit handler ───────────────────────────────────────────────────
     child.on("exit", (code, signal) => {
-        // 🔑 Ignore exits from stale workers (already replaced)
         const current = workers.get(sessionId);
         if (current !== info) {
             console.log(`🔴 Stale worker exit ignored: ${sessionId}`);
@@ -129,7 +134,6 @@ export function spawnWorker(sessionId: string, phone?: string): WorkerInfo {
         );
 
         setTimeout(() => {
-            // Only restart if this worker is still the current one
             if (workers.get(sessionId) !== info) return;
             spawnWorker(sessionId, info.phone);
         }, delay);
@@ -144,14 +148,12 @@ export function killWorker(sessionId: string): void {
 
     w.killedByUser = true;
 
-    // Tell worker to shut down gracefully
     try {
         if (w.process.connected && w.process.send) {
             w.process.send({ type: "kill" });
         }
     } catch { }
 
-    // Force kill after 2 seconds
     setTimeout(() => {
         try {
             w.process.kill("SIGKILL");

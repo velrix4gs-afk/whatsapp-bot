@@ -1,18 +1,48 @@
 import { Bot, InlineKeyboard, InputFile } from "grammy";
+import { createClient } from "@supabase/supabase-js";
+import ws from "ws";
+import crypto from "crypto";
 import {
     spawnWorker,
     killWorker,
     getWorker,
-    getAllWorkers,
+    workerEvents,
 } from "./manager";
 
 let bot: Bot | null = null;
 
+const supabase = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_ANON_KEY!,
+    { realtime: { transport: ws as any } }
+);
+
+function hashPin(pin: string, phone: string): string {
+    return crypto.createHash("sha256").update(`${phone}:${pin}:wabot`).digest("hex");
+}
+
 const userState = new Map<number, {
     phone?: string;
     sessionId?: string;
-    stage?: "awaiting_phone";
+    stage?: "awaiting_phone" | "awaiting_pin";
 }>();
+
+function waitForEvent<T>(eventName: string, timeoutMs: number): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            workerEvents.removeListener(eventName, handler);
+            reject(new Error(`Timeout waiting for ${eventName}`));
+        }, timeoutMs);
+
+        const handler = (data: T) => {
+            clearTimeout(timer);
+            workerEvents.removeListener(eventName, handler);
+            resolve(data);
+        };
+
+        workerEvents.once(eventName, handler);
+    });
+}
 
 function watchAndDeleteOnConnect(
     sessionId: string,
@@ -20,22 +50,19 @@ function watchAndDeleteOnConnect(
     messageId: number,
     successMsg: string
 ) {
-    let tries = 0;
-    const interval = setInterval(async () => {
-        tries++;
-        if (tries > 100) { clearInterval(interval); return; }
+    const handler = async () => {
+        try { await bot!.api.deleteMessage(chatId, messageId); } catch { }
+        try {
+            await bot!.api.sendMessage(chatId, successMsg, { parse_mode: "Markdown" });
+        } catch { }
+        workerEvents.removeListener(`connected:${sessionId}`, handler);
+    };
 
-        const w = getWorker(sessionId);
-        if (!w) return;
+    workerEvents.once(`connected:${sessionId}`, handler);
 
-        if (w.status === "connected") {
-            clearInterval(interval);
-            try { await bot!.api.deleteMessage(chatId, messageId); } catch { }
-            try {
-                await bot!.api.sendMessage(chatId, successMsg, { parse_mode: "Markdown" });
-            } catch { }
-        }
-    }, 3000);
+    setTimeout(() => {
+        workerEvents.removeListener(`connected:${sessionId}`, handler);
+    }, 5 * 60 * 1000);
 }
 
 export function startTelegramBot(): void {
@@ -54,6 +81,7 @@ export function startTelegramBot(): void {
             `I'm *Nova* — I manage your WhatsApp bot.\n\n` +
             `📱 *Commands:*\n` +
             `/link — Link your WhatsApp number\n` +
+            `/register — Set your PIN for web access\n` +
             `/status — Check your link status\n` +
             `/unlink — Disconnect your WhatsApp\n` +
             `/help — Show this menu`,
@@ -65,6 +93,7 @@ export function startTelegramBot(): void {
         await ctx.reply(
             `📖 *Available Commands*\n\n` +
             `/link — Link your WhatsApp number\n` +
+            `/register — Set your PIN for web access\n` +
             `/status — Check your link status\n` +
             `/unlink — Disconnect your WhatsApp\n` +
             `/help — Show this menu`,
@@ -79,6 +108,28 @@ export function startTelegramBot(): void {
             `📱 *Link Your WhatsApp*\n\n` +
             `Send me your WhatsApp number with country code.\n\n` +
             `*Example:* \`2348103077073\``,
+            { parse_mode: "Markdown" }
+        );
+    });
+
+    bot.command("register", async (ctx) => {
+        const chatId = ctx.chat.id;
+        const state = userState.get(chatId) || {};
+
+        if (!state.phone) {
+            await ctx.reply(
+                `❌ You need to link a WhatsApp number first.\n\nUse /link to get started.`
+            );
+            return;
+        }
+
+        state.stage = "awaiting_pin";
+        userState.set(chatId, state);
+
+        await ctx.reply(
+            `🔐 *Set Your PIN*\n\n` +
+            `Send a 4-digit PIN. You'll use it to log in to /my-files.\n\n` +
+            `*Example:* \`1234\``,
             { parse_mode: "Markdown" }
         );
     });
@@ -104,10 +155,6 @@ export function startTelegramBot(): void {
             `📱 *Phone:* +${w.phoneNumber ?? state.phone ?? "unknown"}\n` +
             `🆔 *Session:* \`${w.sessionId}\``;
 
-        if (w.pairingCode && w.status !== "connected") {
-            msg += `\n\n🔢 *Pairing code:* \`${w.pairingCode}\``;
-        }
-
         await ctx.reply(msg, { parse_mode: "Markdown" });
     });
 
@@ -123,35 +170,89 @@ export function startTelegramBot(): void {
         await ctx.reply(`✅ WhatsApp unlinked.`);
     });
 
-    // Phone number input
+    // Phone number / PIN input
     bot.on("message:text", async (ctx) => {
         const chatId = ctx.chat.id;
         const text = ctx.message.text.trim();
         const state = userState.get(chatId);
-        if (!state || state.stage !== "awaiting_phone") return;
+        if (!state) return;
 
-        const cleanPhone = text.replace(/\D/g, "");
-        if (cleanPhone.length < 10) {
-            await ctx.reply(
-                `❌ Invalid number. Send it like: \`2348103077073\``,
-                { parse_mode: "Markdown" }
-            );
+        // ── PIN input ────────────────────────────────────────────────
+        if (state.stage === "awaiting_pin") {
+            const pin = text.replace(/\D/g, "");
+
+            if (pin.length !== 4) {
+                await ctx.reply(`❌ PIN must be exactly 4 digits. Try again.`);
+                return;
+            }
+
+            try {
+                const pinHash = hashPin(pin, state.phone!);
+
+                const { data: existing } = await supabase
+                    .from("users")
+                    .select("phone")
+                    .eq("phone", state.phone!)
+                    .maybeSingle();
+
+                if (existing) {
+                    await supabase
+                        .from("users")
+                        .update({ pin_hash: pinHash })
+                        .eq("phone", state.phone!);
+                } else {
+                    await supabase
+                        .from("users")
+                        .insert({ phone: state.phone!, pin_hash: pinHash });
+
+                    await supabase
+                        .from("user_settings")
+                        .insert({ phone: state.phone! });
+                }
+
+                state.stage = undefined;
+                userState.set(chatId, state);
+
+                await ctx.reply(
+                    `✅ *PIN set!*\n\n` +
+                    `Login anytime at:\n` +
+                    `${process.env.PUBLIC_URL || 'http://localhost:8080'}/my-files\n\n` +
+                    `📱 Phone: \`${state.phone}\`\n` +
+                    `🔐 PIN: \`${pin}\``,
+                    { parse_mode: "Markdown" }
+                );
+            } catch (e) {
+                await ctx.reply(`❌ Error: ${(e as Error).message}`);
+            }
             return;
         }
 
-        state.phone = cleanPhone;
-        state.sessionId = `user_${cleanPhone}`;
-        state.stage = undefined;
-        userState.set(chatId, state);
+        // ── Phone input ──────────────────────────────────────────────
+        if (state.stage === "awaiting_phone") {
+            const cleanPhone = text.replace(/\D/g, "");
+            if (cleanPhone.length < 10) {
+                await ctx.reply(
+                    `❌ Invalid number. Send it like: \`2348103077073\``,
+                    { parse_mode: "Markdown" }
+                );
+                return;
+            }
 
-        const kb = new InlineKeyboard()
-            .text("🔳 QR Code", `qr:${cleanPhone}`)
-            .text("🔢 Pairing Code", `pair:${cleanPhone}`);
+            state.phone = cleanPhone;
+            state.sessionId = `user_${cleanPhone}`;
+            state.stage = undefined;
+            userState.set(chatId, state);
 
-        await ctx.reply(
-            `Got it: *+${cleanPhone}*\n\nHow do you want to link?`,
-            { parse_mode: "Markdown", reply_markup: kb }
-        );
+            const kb = new InlineKeyboard()
+                .text("🔳 QR Code", `qr:${cleanPhone}`)
+                .text("🔢 Pairing Code", `pair:${cleanPhone}`);
+
+            await ctx.reply(
+                `Got it: *+${cleanPhone}*\n\nHow do you want to link?`,
+                { parse_mode: "Markdown", reply_markup: kb }
+            );
+            return;
+        }
     });
 
     // Button clicks
@@ -169,64 +270,65 @@ export function startTelegramBot(): void {
             killWorker(sessionId);
             await new Promise((r) => setTimeout(r, 500));
 
+            // Save the phone to user state so /register works
+            const st = userState.get(chatId) || {};
+            st.phone = phone;
+            st.sessionId = sessionId;
+            userState.set(chatId, st);
+
             if (action === "qr") {
                 spawnWorker(sessionId);
-                await new Promise((r) => setTimeout(r, 6000));
+                await ctx.reply(`⏳ Generating QR code... (up to 20 seconds)`);
 
-                const w = getWorker(sessionId);
-                if (!w?.qrDataUrl) {
-                    await ctx.reply(`⚠️ QR not ready. Wait 5 seconds and try again.`);
-                    return;
+                try {
+                    const qrDataUrl = await waitForEvent<string>(`qr:${sessionId}`, 20_000);
+                    const base64 = qrDataUrl.split(",")[1];
+                    const buffer = Buffer.from(base64, "base64");
+
+                    const sent = await ctx.replyWithPhoto(
+                        new InputFile(buffer, "qr.png"),
+                        {
+                            caption:
+                                `🔳 *Scan this QR code*\n\n` +
+                                `WhatsApp → Settings → Linked Devices → Link a Device\n\n` +
+                                `_This message auto-deletes once linked._`,
+                            parse_mode: "Markdown",
+                        }
+                    );
+
+                    watchAndDeleteOnConnect(
+                        sessionId,
+                        chatId,
+                        sent.message_id,
+                        `✅ *WhatsApp linked successfully!*\n\nUse /register to set your PIN for web access.`
+                    );
+                } catch (err) {
+                    await ctx.reply(`❌ QR not ready after 20s. Try again or use pairing code.`);
                 }
-
-                const base64 = w.qrDataUrl.split(",")[1];
-                const buffer = Buffer.from(base64, "base64");
-
-                const sent = await ctx.replyWithPhoto(
-                    new InputFile(buffer, "qr.png"),
-                    {
-                        caption:
-                            `🔳 *Scan this QR code*\n\n` +
-                            `WhatsApp → Settings → Linked Devices → Link a Device\n\n` +
-                            `_This message auto-deletes once linked._`,
-                        parse_mode: "Markdown",
-                    }
-                );
-
-                watchAndDeleteOnConnect(
-                    sessionId,
-                    chatId,
-                    sent.message_id,
-                    `✅ *WhatsApp linked successfully!*\n\nYou can now use the bot from +${phone}.`
-                );
             } else if (action === "pair") {
                 spawnWorker(sessionId, phone);
-                await new Promise((r) => setTimeout(r, 3000));
+                await ctx.reply(`⏳ Generating pairing code... (up to 30 seconds)`);
 
-                const w = getWorker(sessionId);
-                const code = w?.pairingCode;
+                try {
+                    const code = await waitForEvent<string>(`pairing:${sessionId}`, 30_000);
 
-                if (!code) {
-                    await ctx.reply(
-                        `⚠️ Pairing code not ready.\n\nTry again in 3 seconds, or use /status.`
+                    const sent = await ctx.reply(
+                        `🔢 *Pairing Code*\n\n` +
+                        `\`${code}\`\n\n` +
+                        `WhatsApp → Settings → Linked Devices → Link with Phone Number\n\n` +
+                        `⚡ *Enter this code FAST — it expires in ~20 seconds.*`,
+                        { parse_mode: "Markdown" }
                     );
-                    return;
+
+                    watchAndDeleteOnConnect(
+                        sessionId,
+                        chatId,
+                        sent.message_id,
+                        `✅ *WhatsApp linked successfully!*\n\nUse /register to set your PIN for web access.`
+                    );
+                } catch (err) {
+                    await ctx.reply(`❌ Pairing code not ready after 30s.\n\nTry again.`);
                 }
-
-                const sent = await ctx.reply(
-                    `🔢 *Pairing Code*\n\n` +
-                    `\`${code}\`\n\n` +
-                    `WhatsApp → Settings → Linked Devices → Link with Phone Number\n\n` +
-                    `_Enter this code FAST — it expires in ~20 seconds._`,
-                    { parse_mode: "Markdown" }
-                );
-
-                watchAndDeleteOnConnect(
-                    sessionId,
-                    chatId,
-                    sent.message_id,
-                    `✅ *WhatsApp linked successfully!*\n\nYou can now use the bot from +${phone}.`
-                );
             }
         } catch (e) {
             await ctx.reply(`❌ Error: ${(e as Error).message}`);
@@ -244,4 +346,4 @@ export function startTelegramBot(): void {
 
 export function getBot(): Bot | null {
     return bot;
-}
+}   
