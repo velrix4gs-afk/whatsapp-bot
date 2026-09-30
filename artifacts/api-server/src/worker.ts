@@ -1,6 +1,6 @@
 /**
  * Worker – runs ONE WhatsApp session as a child process.
- * Full features + Supabase Storage uploads + PIN registration support.
+ * Full features + Supabase uploads + autotyping toggle + .savepp <number>
  */
 import makeWASocket, {
     Browsers,
@@ -53,6 +53,7 @@ function log(text: string) {
 let pairingRequested = false;
 let sock: any = null;
 let stopping = false;
+let autoTypingEnabled = true;   // default ON
 
 // ── Helpers ───────────────────────────────────────────────────────────
 function mimeToExt(mime?: string | null): string {
@@ -211,7 +212,6 @@ const viewOnceCache = new Map<string, {
 
 // ── Features ───────────────────────────────────────────────────────────
 async function handleViewOnce(msg: any, chatJid: string) {
-    // 🔑 Skip text messages to prevent .vv from double-triggering
     const m = msg.message;
     if (m.conversation) return;
     if (m.extendedTextMessage?.text) return;
@@ -262,19 +262,10 @@ async function handleReaction(msg: any) {
     const emoji = reaction.text ?? "";
     const TRIGGERS = new Set(["🙂", "😣", "🤪", "😇", "🥺"]);
     if (!TRIGGERS.has(emoji)) return;
-
-    const ownerJid = getOwnerJid();
-    const sender = msg.key.participant ?? msg.key.remoteJid ?? "";
-    log(`🔍 Reaction debug: fromMe=${msg.key.fromMe}, sender=${sender}, owner=${ownerJid}, cache_size=${viewOnceCache.size}`);
-
-    if (!isFromMe(msg)) {
-        log(`❌ Not from owner, skipping`);
-        return;
-    }
+    if (!isFromMe(msg)) return;
 
     const originalId = reaction.key?.id ?? "";
     log(`🔁 Owner reacted ${emoji} on ${originalId}`);
-    log(`🔍 Cache keys: ${[...viewOnceCache.keys()].join(", ")}`);
 
     const cached = viewOnceCache.get(originalId);
     if (!cached) {
@@ -317,10 +308,25 @@ async function handleSaveStatus(msg: any, chatJid: string) {
         const filename = `status_${Date.now()}.${ext}`;
 
         const url = await saveAndUpload(buffer, filename, mime);
-        const replyText = url
-            ? `✅ *Status saved*\n\n📁 ${url}`
-            : `✅ Status saved locally (cloud upload failed)`;
-        await sock.sendMessage(chatJid, { text: replyText });
+
+        // ── Short confirmation in the original chat ────────────────────
+        await sock.sendMessage(chatJid, { text: `✅ Status saved` });
+
+        // ── Send actual file to owner's own DM ─────────────────────────
+        const ownerJid = getOwnerJid();
+        if (ownerJid) {
+            const posterJid = ctx.participant ?? ctx.remoteJid ?? "";
+            const posterNum = posterJid.split("@")[0]?.split(":")[0] ?? "unknown";
+            const caption =
+                `🔓 *Status ${type}*\n` +
+                `From: +${posterNum}` +
+                (url ? `\n\n📁 ${url}` : "");
+
+            if (type === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
+            else if (type === "video") await sock.sendMessage(ownerJid, { video: buffer, caption });
+            else await sock.sendMessage(ownerJid, { audio: buffer, mimetype: mime, ptt: true });
+        }
+
         log(`💾 Saved status: ${filename}`);
         return true;
     } catch (e) {
@@ -354,14 +360,33 @@ async function handleSticker(msg: any, chatJid: string) {
     }
 }
 
-async function handleSavePP(msg: any, chatJid: string) {
-    const sender = msg.key.participant ?? msg.key.remoteJid ?? chatJid;
+// ── .savepp [number] ──────────────────────────────────────────────────
+async function handleSavePP(msg: any, chatJid: string, args: string[]) {
+    // If number provided, use it. Otherwise use the sender.
+    let targetJid: string;
+
+    if (args[0]) {
+        const number = args[0].replace(/\D/g, "");
+        if (number.length < 10) {
+            await sock.sendMessage(chatJid, {
+                text: `❌ Invalid number.\n\n*Usage:* \`savepp 2348103077073\``,
+            });
+            return false;
+        }
+        targetJid = `${number}@s.whatsapp.net`;
+    } else {
+        targetJid = msg.key.participant ?? msg.key.remoteJid ?? chatJid;
+    }
+
     try {
-        const pp = await sock.profilePictureUrl(sender, "image");
-        if (!pp) return false;
+        const pp = await sock.profilePictureUrl(targetJid, "image");
+        if (!pp) {
+            await sock.sendMessage(chatJid, { text: `❌ No profile picture available for that number.` });
+            return false;
+        }
         const resp = await fetch(pp);
         const buffer = Buffer.from(await resp.arrayBuffer());
-        const filename = `pp_${sender.split("@")[0]}_${Date.now()}.jpg`;
+        const filename = `pp_${targetJid.split("@")[0]}_${Date.now()}.jpg`;
 
         const url = await saveAndUpload(buffer, filename, "image/jpeg");
         const replyText = url
@@ -502,11 +527,18 @@ async function run() {
                 continue;
             }
 
+            // ── Autotyping indicator ───────────────────────────────────────
+            if (autoTypingEnabled && !isFromMe(msg)) {
+                try { await sock.sendPresenceUpdate("composing", chatJid); } catch { }
+            }
+
             await handleViewOnce(msg, chatJid);
 
             const text = getText(msg);
             if (!text) continue;
-            const cmd = text.trim().toLowerCase().replace(/^\./, "");
+            const lower = text.trim().toLowerCase();
+            const cmd = lower.replace(/^\./, "");
+            const args = text.trim().split(/\s+/).slice(1);
 
             if (cmd === "ping") {
                 await sock.sendMessage(chatJid, { text: "🏓 Pong!" });
@@ -514,8 +546,21 @@ async function run() {
             }
             if (cmd === "save") { await handleSaveStatus(msg, chatJid); continue; }
             if (cmd === "sticker") { await handleSticker(msg, chatJid); continue; }
-            if (cmd === "savepp") { await handleSavePP(msg, chatJid); continue; }
+            if (cmd === "savepp") { await handleSavePP(msg, chatJid, args); continue; }
             if (cmd === "vv") { await handleVv(msg, chatJid); continue; }
+
+            if (cmd === "autotyping on") {
+                autoTypingEnabled = true;
+                await sock.sendMessage(chatJid, { text: "✍️ Auto-typing *ON*" });
+                log(`Autotyping ON`);
+                continue;
+            }
+            if (cmd === "autotyping off") {
+                autoTypingEnabled = false;
+                await sock.sendMessage(chatJid, { text: "🚫 Auto-typing *OFF*" });
+                log(`Autotyping OFF`);
+                continue;
+            }
 
             if (cmd === "files" || cmd === "myfiles") {
                 const publicUrl = process.env.PUBLIC_URL || "http://localhost:8080";
@@ -543,7 +588,10 @@ async function run() {
                         `├ \`vv\` — reply to view-once to save\n` +
                         `├ \`sticker\` — reply to image/video\n` +
                         `├ \`save\` — reply to a status\n` +
-                        `└ \`savepp\` — save profile picture\n\n` +
+                        `└ \`savepp <number>\` — save profile pic\n\n` +
+                        `✍️ *PRESENCE*\n` +
+                        `├ \`autotyping on\` — show typing\n` +
+                        `└ \`autotyping off\` — hide typing\n\n` +
                         `_Type any command with or without the dot._`,
                 });
                 continue;
