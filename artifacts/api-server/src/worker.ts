@@ -140,15 +140,9 @@ async function saveAndUpload(buffer: Buffer, filename: string, mime: string): Pr
     try {
         const storagePath = `${PHONE}/${filename}`;
         const { error } = await supabase.storage.from("saved_media").upload(storagePath, buffer, { contentType: mime, upsert: false });
-        if (error) {
-            log(`Upload error: ${error.message}`);
-            return null;
-        }
+        if (error) return null;
         return supabase.storage.from("saved_media").getPublicUrl(storagePath).data?.publicUrl ?? null;
-    } catch (e) {
-        log(`Upload exception: ${e}`);
-        return null;
-    }
+    } catch { return null; }
 }
 
 // ── Features ───────────────────────────────────────────────────────────
@@ -297,7 +291,6 @@ async function run() {
     sock.ev.on("connection.update", async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // 🔑 The QR event is the trigger that the socket is ready for a pairing request
         if (qr) {
             if (PAIRING_PHONE && !pairingRequested && !state.creds.registered) {
                 pairingRequested = true;
@@ -324,11 +317,17 @@ async function run() {
 
         if (connection === "close") {
             if (stopping) return;
+
+            const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
+            const reason = (lastDisconnect?.error as Boom)?.message || "Unknown reason";
+
+            // 🔑 If we were trying to pair and it closed, tell Telegram exactly why
             if (pairingRequested && !state.creds.registered) {
-                log("Connection closed during pairing.");
+                log(`Connection closed during pairing. Reason: ${reason}`);
+                ipc({ type: "pairing_error", error: `WhatsApp refused connection: ${reason}` });
                 return;
             }
-            const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
+
             if (code === DisconnectReason.loggedOut) {
                 ipc({ type: "logged_out" });
                 return;

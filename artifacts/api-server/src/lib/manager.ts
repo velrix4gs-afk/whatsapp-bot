@@ -75,6 +75,11 @@ export function spawnWorker(sessionId: string, phone?: string): WorkerInfo {
         if (workers.get(sessionId) !== info) return;
         if (info.killedByUser) { workers.delete(sessionId); return; }
 
+        // 🔑 If it crashed before generating a code, tell Telegram
+        if (info.pairingCode === undefined && info.phone) {
+            workerEvents.emit(`error:${sessionId}`, `Worker crashed (code ${code}). Check Render logs.`);
+        }
+
         info.restartCount++;
         if (info.restartCount > 5) { workers.delete(sessionId); return; }
 

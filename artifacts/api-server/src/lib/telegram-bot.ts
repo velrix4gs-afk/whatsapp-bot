@@ -111,7 +111,8 @@ export function startTelegramBot() {
 
             try {
                 const code = await new Promise<string>((resolve, reject) => {
-                    const timer = setTimeout(() => { cleanup(); reject(new Error("Timeout. WhatsApp might be rate-limiting you.")); }, 30000);
+                    // 45 second timeout just in case WhatsApp is slow
+                    const timer = setTimeout(() => { cleanup(); reject(new Error("Timeout. WhatsApp might be rate-limiting you.")); }, 45000);
 
                     const onPairing = (c: string) => { cleanup(); resolve(c); };
                     const onError = (err: string) => { cleanup(); reject(new Error(err)); };
