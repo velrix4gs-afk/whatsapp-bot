@@ -11,24 +11,6 @@ function hashPin(pin: string, phone: string) { return crypto.createHash("sha256"
 
 const userState = new Map<number, { phones: string[]; stage?: "awaiting_phone" | "awaiting_pin"; targetPhone?: string }>();
 
-function waitForEvent<T>(eventName: string, timeoutMs: number): Promise<T> {
-    return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { workerEvents.removeListener(eventName, handler); reject(new Error("Timeout")); }, timeoutMs);
-        const handler = (data: T) => { clearTimeout(timer); workerEvents.removeListener(eventName, handler); resolve(data); };
-        workerEvents.once(eventName, handler);
-    });
-}
-
-function watchAndDeleteOnConnect(sessionId: string, chatId: number, messageId: number, successMsg: string) {
-    const handler = async () => {
-        try { await bot!.api.deleteMessage(chatId, messageId); } catch { }
-        try { await bot!.api.sendMessage(chatId, successMsg, { parse_mode: "Markdown" }); } catch { }
-        workerEvents.removeListener(`connected:${sessionId}`, handler);
-    };
-    workerEvents.once(`connected:${sessionId}`, handler);
-    setTimeout(() => workerEvents.removeListener(`connected:${sessionId}`, handler), 5 * 60 * 1000);
-}
-
 export function startTelegramBot() {
     bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!);
 
@@ -54,7 +36,6 @@ export function startTelegramBot() {
             return ctx.reply(`🔐 Send a 4-digit PIN for +${state.phones[0]}`);
         }
 
-        // Multiple numbers -> Show buttons
         const kb = new InlineKeyboard();
         state.phones.forEach(p => kb.text(`+${p}`, `pinreg:${p}`).row());
         await ctx.reply("Which number do you want to set a PIN for?", { reply_markup: kb });
@@ -115,19 +96,44 @@ export function startTelegramBot() {
             spawnWorker(sessionId);
             await ctx.reply("⏳ Generating QR...");
             try {
-                const qr = await waitForEvent<string>(`qr:${sessionId}`, 20000);
+                const qr = await new Promise<string>((resolve, reject) => {
+                    const timer = setTimeout(() => { cleanup(); reject(new Error("Timeout")); }, 20000);
+                    const onQr = (d: string) => { cleanup(); resolve(d); };
+                    const cleanup = () => { clearTimeout(timer); workerEvents.removeListener(`qr:${sessionId}`, onQr); };
+                    workerEvents.once(`qr:${sessionId}`, onQr);
+                });
                 const buf = Buffer.from(qr.split(",")[1], "base64");
                 await ctx.replyWithPhoto(new InputFile(buf, "qr.png"), { caption: "Scan this in WhatsApp" });
             } catch { await ctx.reply("❌ QR Timeout. Try again."); }
         } else {
             spawnWorker(sessionId, phone);
             await ctx.reply("⏳ Requesting Pairing Code...");
+
             try {
-                const code = await waitForEvent<string>(`pairing:${sessionId}`, 30000);
+                const code = await new Promise<string>((resolve, reject) => {
+                    const timer = setTimeout(() => { cleanup(); reject(new Error("Timeout. WhatsApp might be rate-limiting you.")); }, 30000);
+
+                    const onPairing = (c: string) => { cleanup(); resolve(c); };
+                    const onError = (err: string) => { cleanup(); reject(new Error(err)); };
+
+                    const cleanup = () => {
+                        clearTimeout(timer);
+                        workerEvents.removeListener(`pairing:${sessionId}`, onPairing);
+                        workerEvents.removeListener(`pairing_error:${sessionId}`, onError);
+                        workerEvents.removeListener(`error:${sessionId}`, onError);
+                    };
+
+                    workerEvents.once(`pairing:${sessionId}`, onPairing);
+                    workerEvents.once(`pairing_error:${sessionId}`, onError);
+                    workerEvents.once(`error:${sessionId}`, onError);
+                });
+
                 await ctx.reply(`🔢 Your code: \`${code}\`\nEnter it in WhatsApp FAST.`, { parse_mode: "Markdown" });
-            } catch { await ctx.reply("❌ Pairing failed. Try again."); }
+            } catch (err: any) {
+                await ctx.reply(`❌ Pairing failed:\n\n${err.message}`);
+            }
         }
     });
 
     bot.start({ onStart: () => console.log("✅ Telegram Bot Started") });
-}   
+}

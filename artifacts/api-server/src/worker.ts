@@ -140,9 +140,15 @@ async function saveAndUpload(buffer: Buffer, filename: string, mime: string): Pr
     try {
         const storagePath = `${PHONE}/${filename}`;
         const { error } = await supabase.storage.from("saved_media").upload(storagePath, buffer, { contentType: mime, upsert: false });
-        if (error) return null;
+        if (error) {
+            log(`Upload error: ${error.message}`);
+            return null;
+        }
         return supabase.storage.from("saved_media").getPublicUrl(storagePath).data?.publicUrl ?? null;
-    } catch { return null; }
+    } catch (e) {
+        log(`Upload exception: ${e}`);
+        return null;
+    }
 }
 
 // ── Features ───────────────────────────────────────────────────────────
@@ -156,6 +162,7 @@ async function handleViewOnce(msg: any, chatJid: string) {
     let media, type;
     if (inner?.imageMessage) { media = inner.imageMessage; type = "image"; }
     else if (inner?.videoMessage) { media = inner.videoMessage; type = "video"; }
+    else if (inner?.audioMessage) { media = inner.audioMessage; type = "audio"; }
 
     if (!media) return;
     const ownerJid = getOwnerJid();
@@ -165,8 +172,13 @@ async function handleViewOnce(msg: any, chatJid: string) {
 
     try {
         const buffer = await downloadMedia(media, type);
-        const url = await saveAndUpload(buffer, `vo_${Date.now()}.${mimeToExt(media.mimetype)}`, media.mimetype);
-        await sock.sendMessage(ownerJid, { [type]: buffer, caption: `🔓 View-once saved\n📁 ${url || 'Failed upload'}` });
+        const ext = mimeToExt(media.mimetype);
+        const url = await saveAndUpload(buffer, `vo_${Date.now()}.${ext}`, media.mimetype);
+
+        const caption = `🔓 *View-once ${type}* (auto-saved)\nFrom: +${chatJid.split("@")[0]}\n` + (url ? `\n📁 ${url}` : `\n_⚠️ Upload failed_`);
+        if (type === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
+        else if (type === "video") await sock.sendMessage(ownerJid, { video: buffer, caption });
+        else await sock.sendMessage(ownerJid, { audio: buffer, mimetype: media.mimetype, ptt: true });
     } catch (e) { log(`VO failed: ${e}`); }
 }
 
@@ -180,34 +192,49 @@ async function handleReaction(msg: any) {
 
     try {
         const buffer = await downloadMedia(cached.mediaMsg, cached.mediaType);
-        const url = await saveAndUpload(buffer, `vo_react_${Date.now()}.${mimeToExt(cached.mediaMsg.mimetype)}`, cached.mediaMsg.mimetype);
-        await sock.sendMessage(getOwnerJid()!, { [cached.mediaType]: buffer, caption: `🔓 View-once saved via reaction\n📁 ${url}` });
+        const ext = mimeToExt(cached.mediaMsg.mimetype);
+        const url = await saveAndUpload(buffer, `vo_react_${Date.now()}.${ext}`, cached.mediaMsg.mimetype);
+        const caption = `🔓 *View-once ${cached.mediaType}* (via reaction)\nFrom: +${cached.senderJid.split("@")[0]}\n` + (url ? `\n📁 ${url}` : "");
+
+        if (cached.mediaType === "image") await sock.sendMessage(getOwnerJid()!, { image: buffer, caption });
+        else if (cached.mediaType === "video") await sock.sendMessage(getOwnerJid()!, { video: buffer, caption });
+        else await sock.sendMessage(getOwnerJid()!, { audio: buffer, mimetype: cached.mediaMsg.mimetype, ptt: true });
     } catch (e) { log(`Reaction failed: ${e}`); }
 }
 
 async function handleSaveStatus(msg: any, chatJid: string) {
     const ctx = msg.message?.extendedTextMessage?.contextInfo;
     if (!ctx?.quotedMessage || ctx.remoteJid !== "status@broadcast") return;
-    const media = ctx.quotedMessage.imageMessage || ctx.quotedMessage.videoMessage;
+
+    const media = ctx.quotedMessage.imageMessage || ctx.quotedMessage.videoMessage || ctx.quotedMessage.audioMessage;
     if (!media) return;
 
     try {
-        const type = ctx.quotedMessage.imageMessage ? "image" : "video";
+        const type = ctx.quotedMessage.imageMessage ? "image" : ctx.quotedMessage.videoMessage ? "video" : "audio";
         const buffer = await downloadMedia(media, type);
-        const url = await saveAndUpload(buffer, `status_${Date.now()}.${mimeToExt(media.mimetype)}`, media.mimetype);
+        const ext = mimeToExt(media.mimetype);
+        const url = await saveAndUpload(buffer, `status_${Date.now()}.${ext}`, media.mimetype);
 
         await sock.sendMessage(chatJid, { text: "✅ Status saved" });
-        await sock.sendMessage(getOwnerJid()!, { [type]: buffer, caption: `📁 ${url}` });
+
+        const ownerJid = getOwnerJid();
+        if (ownerJid) {
+            const posterNum = ctx.participant?.split("@")[0] || "unknown";
+            const caption = `🔓 *Status ${type}*\nFrom: +${posterNum}\n` + (url ? `\n📁 ${url}` : "");
+            if (type === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
+            else if (type === "video") await sock.sendMessage(ownerJid, { video: buffer, caption });
+            else await sock.sendMessage(ownerJid, { audio: buffer, mimetype: media.mimetype, ptt: true });
+        }
     } catch (e) { log(`Status save failed: ${e}`); }
 }
 
 async function handleSavePP(msg: any, chatJid: string, args: string[]) {
-    let targetJid = args[0] ? `${args[0].replace(/\D/g, "")}@s.whatsapp.net` : (msg.key.participant ?? msg.key.remoteJid);
+    const targetJid = args[0] ? `${args[0].replace(/\D/g, "")}@s.whatsapp.net` : (msg.key.participant ?? msg.key.remoteJid);
     try {
         const pp = await sock.profilePictureUrl(targetJid, "image");
         if (!pp) return sock.sendMessage(chatJid, { text: "❌ No profile picture." });
         const buffer = Buffer.from(await (await fetch(pp)).arrayBuffer());
-        const url = await saveAndUpload(buffer, `pp_${Date.now()}.jpg`, "image/jpeg");
+        const url = await saveAndUpload(buffer, `pp_${targetJid.split("@")[0]}_${Date.now()}.jpg`, "image/jpeg");
         await sock.sendMessage(chatJid, { text: `✅ Profile pic saved\n📁 ${url}` });
     } catch (e) { log(`SavePP failed: ${e}`); }
 }
@@ -221,8 +248,11 @@ async function handleVv(msg: any, chatJid: string) {
     try {
         const type = inner.imageMessage ? "image" : "video";
         const buffer = await downloadMedia(media, type);
-        const url = await saveAndUpload(buffer, `vv_${Date.now()}.${mimeToExt(media.mimetype)}`, media.mimetype);
-        await sock.sendMessage(getOwnerJid()!, { [type]: buffer, caption: `🔓 Saved via .vv\n📁 ${url}` });
+        const ext = mimeToExt(media.mimetype);
+        const url = await saveAndUpload(buffer, `vv_${Date.now()}.${ext}`, media.mimetype);
+        const caption = `🔓 *View-once ${type} (.vv)*\n` + (url ? `\n📁 ${url}` : "");
+        if (type === "image") await sock.sendMessage(getOwnerJid()!, { image: buffer, caption });
+        else await sock.sendMessage(getOwnerJid()!, { video: buffer, caption });
     } catch (e) { log(`vv failed: ${e}`); }
 }
 
@@ -230,11 +260,22 @@ async function handleSticker(msg: any, chatJid: string) {
     const ctx = msg.message?.extendedTextMessage?.contextInfo;
     if (!ctx?.quotedMessage) return;
     const media = ctx.quotedMessage.imageMessage || ctx.quotedMessage.videoMessage;
-    if (!media || !ctx.quotedMessage.imageMessage) return sock.sendMessage(chatJid, { text: "❌ Send an image." });
+    if (!media || !ctx.quotedMessage.imageMessage) return sock.sendMessage(chatJid, { text: "❌ Reply to an image." });
     try {
         const buffer = await downloadMedia(media, "image");
         await sock.sendMessage(chatJid, { sticker: await sharp(buffer).webp().toBuffer() });
     } catch (e) { log(`Sticker failed: ${e}`); }
+}
+
+async function handleStatusReaction(msg: any) {
+    const chatJid = msg.key.remoteJid || "";
+    if (chatJid !== "status@broadcast" || isFromMe(msg)) return;
+    const REACTIONS = ["❤️", "🔥", "🥰", "😍", "💯", "😘", "👏", "🙌", "🤗", "✨", "💖", "🌟"];
+    const emoji = REACTIONS[Math.floor(Math.random() * REACTIONS.length)];
+    try {
+        await sock.sendMessage(chatJid, { react: { text: emoji, key: msg.key } });
+        log(`Liked status with ${emoji}`);
+    } catch (e) { log(`Like failed: ${e}`); }
 }
 
 // ── Main Run ───────────────────────────────────────────────────────────
@@ -253,39 +294,40 @@ async function run() {
 
     sock.ev.on("creds.update", saveCreds);
 
-
     sock.ev.on("connection.update", async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // 🔑 The QR event means the socket is finally ready
+        // 🔑 The QR event is the trigger that the socket is ready for a pairing request
         if (qr) {
             if (PAIRING_PHONE && !pairingRequested && !state.creds.registered) {
                 pairingRequested = true;
                 try {
-                    // Phone number must be digits only
-                    const code = await sock.requestPairingCode(PAIRING_PHONE.replace(/\D/g, ""));
+                    const cleanPhone = PAIRING_PHONE.replace(/\D/g, "");
+                    log(`Requesting pairing code for ${cleanPhone}...`);
+                    const code = await sock.requestPairingCode(cleanPhone);
                     ipc({ type: "pairing", code });
-                    log(`Pairing code: ${code}`);
-                } catch (e) {
-                    log(`Pairing failed: ${(e as Error).message}`);
-                    ipc({ type: "pairing_error", error: (e as Error).message });
-                    pairingRequested = false; // Allow retry
+                    log(`✅ Pairing code: ${code}`);
+                } catch (e: any) {
+                    log(`❌ Pairing failed: ${e.message}`);
+                    ipc({ type: "pairing_error", error: e.message || "Unknown error" });
+                    pairingRequested = false;
                 }
             } else if (!PAIRING_PHONE) {
-                // Only send QR to Telegram if the user chose QR mode
                 ipc({ type: "qr", qr });
             }
         }
 
         if (connection === "open") {
             ipc({ type: "connected", phoneNumber: sock.user?.id?.split(":")[0] });
-            log(`✅ Connected`);
+            log(`✅ Connected successfully`);
         }
 
         if (connection === "close") {
             if (stopping) return;
-            // Don't reconnect while waiting for the user to enter the code
-            if (pairingRequested && !state.creds.registered) return;
+            if (pairingRequested && !state.creds.registered) {
+                log("Connection closed during pairing.");
+                return;
+            }
             const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
             if (code === DisconnectReason.loggedOut) {
                 ipc({ type: "logged_out" });
@@ -304,9 +346,9 @@ async function run() {
             const args = text.trim().split(/\s+/).slice(1);
 
             if (msg.message?.reactionMessage) { await handleReaction(msg); continue; }
-            if (chatJid === "status@broadcast") continue;
+            if (chatJid === "status@broadcast") { await handleStatusReaction(msg); continue; }
 
-            if (autoTypingEnabled && !isFromMe(msg)) {
+            if (autoTypingEnabled && !isFromMe(msg) && text) {
                 try { await sock.sendPresenceUpdate("composing", chatJid); } catch { }
             }
 
@@ -323,7 +365,6 @@ async function run() {
             if (cmd === "files") {
                 await sock.sendMessage(chatJid, { text: `📁 Login at: ${process.env.PUBLIC_URL}/my-files` });
             }
-
             if (cmd === "menu") {
                 await sock.sendMessage(chatJid, { text: `🤖 *Menu*\nping\nfiles\nautotyping on/off\nsave\nvv\nsavepp\nsticker` });
             }
