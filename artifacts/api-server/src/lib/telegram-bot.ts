@@ -9,7 +9,6 @@ let bot: Bot | null = null;
 
 function hashPin(pin: string, phone: string) { return crypto.createHash("sha256").update(`${phone}:${pin}:wabot`).digest("hex"); }
 
-// 🔑 FIX: Store an array of linked numbers per Telegram user
 const userState = new Map<number, { phones: string[]; stage?: "awaiting_phone" | "awaiting_pin"; targetPhone?: string }>();
 
 function waitForEvent<T>(eventName: string, timeoutMs: number): Promise<T> {
@@ -18,6 +17,16 @@ function waitForEvent<T>(eventName: string, timeoutMs: number): Promise<T> {
         const handler = (data: T) => { clearTimeout(timer); workerEvents.removeListener(eventName, handler); resolve(data); };
         workerEvents.once(eventName, handler);
     });
+}
+
+function watchAndDeleteOnConnect(sessionId: string, chatId: number, messageId: number, successMsg: string) {
+    const handler = async () => {
+        try { await bot!.api.deleteMessage(chatId, messageId); } catch { }
+        try { await bot!.api.sendMessage(chatId, successMsg, { parse_mode: "Markdown" }); } catch { }
+        workerEvents.removeListener(`connected:${sessionId}`, handler);
+    };
+    workerEvents.once(`connected:${sessionId}`, handler);
+    setTimeout(() => workerEvents.removeListener(`connected:${sessionId}`, handler), 5 * 60 * 1000);
 }
 
 export function startTelegramBot() {
@@ -45,7 +54,7 @@ export function startTelegramBot() {
             return ctx.reply(`🔐 Send a 4-digit PIN for +${state.phones[0]}`);
         }
 
-        // 🔑 FIX: Multiple numbers -> Show buttons
+        // Multiple numbers -> Show buttons
         const kb = new InlineKeyboard();
         state.phones.forEach(p => kb.text(`+${p}`, `pinreg:${p}`).row());
         await ctx.reply("Which number do you want to set a PIN for?", { reply_markup: kb });

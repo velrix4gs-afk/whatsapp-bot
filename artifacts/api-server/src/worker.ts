@@ -185,6 +185,58 @@ async function handleReaction(msg: any) {
     } catch (e) { log(`Reaction failed: ${e}`); }
 }
 
+async function handleSaveStatus(msg: any, chatJid: string) {
+    const ctx = msg.message?.extendedTextMessage?.contextInfo;
+    if (!ctx?.quotedMessage || ctx.remoteJid !== "status@broadcast") return;
+    const media = ctx.quotedMessage.imageMessage || ctx.quotedMessage.videoMessage;
+    if (!media) return;
+
+    try {
+        const type = ctx.quotedMessage.imageMessage ? "image" : "video";
+        const buffer = await downloadMedia(media, type);
+        const url = await saveAndUpload(buffer, `status_${Date.now()}.${mimeToExt(media.mimetype)}`, media.mimetype);
+
+        await sock.sendMessage(chatJid, { text: "✅ Status saved" });
+        await sock.sendMessage(getOwnerJid()!, { [type]: buffer, caption: `📁 ${url}` });
+    } catch (e) { log(`Status save failed: ${e}`); }
+}
+
+async function handleSavePP(msg: any, chatJid: string, args: string[]) {
+    let targetJid = args[0] ? `${args[0].replace(/\D/g, "")}@s.whatsapp.net` : (msg.key.participant ?? msg.key.remoteJid);
+    try {
+        const pp = await sock.profilePictureUrl(targetJid, "image");
+        if (!pp) return sock.sendMessage(chatJid, { text: "❌ No profile picture." });
+        const buffer = Buffer.from(await (await fetch(pp)).arrayBuffer());
+        const url = await saveAndUpload(buffer, `pp_${Date.now()}.jpg`, "image/jpeg");
+        await sock.sendMessage(chatJid, { text: `✅ Profile pic saved\n📁 ${url}` });
+    } catch (e) { log(`SavePP failed: ${e}`); }
+}
+
+async function handleVv(msg: any, chatJid: string) {
+    const ctx = msg.message?.extendedTextMessage?.contextInfo;
+    if (!ctx?.quotedMessage) return;
+    const inner = ctx.quotedMessage.viewOnceMessage?.message ?? ctx.quotedMessage.viewOnceMessageV2?.message ?? ctx.quotedMessage;
+    const media = inner.imageMessage || inner.videoMessage;
+    if (!media) return;
+    try {
+        const type = inner.imageMessage ? "image" : "video";
+        const buffer = await downloadMedia(media, type);
+        const url = await saveAndUpload(buffer, `vv_${Date.now()}.${mimeToExt(media.mimetype)}`, media.mimetype);
+        await sock.sendMessage(getOwnerJid()!, { [type]: buffer, caption: `🔓 Saved via .vv\n📁 ${url}` });
+    } catch (e) { log(`vv failed: ${e}`); }
+}
+
+async function handleSticker(msg: any, chatJid: string) {
+    const ctx = msg.message?.extendedTextMessage?.contextInfo;
+    if (!ctx?.quotedMessage) return;
+    const media = ctx.quotedMessage.imageMessage || ctx.quotedMessage.videoMessage;
+    if (!media || !ctx.quotedMessage.imageMessage) return sock.sendMessage(chatJid, { text: "❌ Send an image." });
+    try {
+        const buffer = await downloadMedia(media, "image");
+        await sock.sendMessage(chatJid, { sticker: await sharp(buffer).webp().toBuffer() });
+    } catch (e) { log(`Sticker failed: ${e}`); }
+}
+
 // ── Main Run ───────────────────────────────────────────────────────────
 async function run() {
     const { state, saveCreds } = await useSupabaseAuthState(SESSION_ID);
@@ -201,26 +253,27 @@ async function run() {
 
     sock.ev.on("creds.update", saveCreds);
 
+    // 🔑 FIX: Request pairing code immediately after socket init, outside connection.update
+    if (PAIRING_PHONE && !state.creds.registered) {
+        setTimeout(async () => {
+            try {
+                pairingRequested = true;
+                const code = await sock.requestPairingCode(PAIRING_PHONE.replace(/\D/g, ""));
+                ipc({ type: "pairing", code });
+                log(`Pairing code: ${code}`);
+            } catch (e) {
+                log(`Pairing failed: ${(e as Error).message}`);
+                ipc({ type: "pairing_error", error: (e as Error).message });
+                pairingRequested = false;
+            }
+        }, 3000); // Give it 3 seconds to fully connect before asking for code
+    }
+
     sock.ev.on("connection.update", async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr) {
-            // 🔑 FIX: Request pairing code ONLY when the QR is generated (socket is ready)
-            if (PAIRING_PHONE && !pairingRequested && !state.creds.registered) {
-                pairingRequested = true;
-                try {
-                    const code = await sock.requestPairingCode(PAIRING_PHONE.replace(/\D/g, ""));
-                    ipc({ type: "pairing", code });
-                    log(`Pairing code: ${code}`);
-                } catch (e) {
-                    log(`Pairing failed: ${(e as Error).message}`);
-                    ipc({ type: "pairing_error", error: (e as Error).message });
-                    pairingRequested = false;
-                }
-            } else if (!PAIRING_PHONE) {
-                ipc({ type: "qr", qr });
-            }
-        }
+        // Only send QR if we didn't request a pairing code
+        if (qr && !PAIRING_PHONE) ipc({ type: "qr", qr });
 
         if (connection === "open") {
             ipc({ type: "connected", phoneNumber: sock.user?.id?.split(":")[0] });
@@ -256,13 +309,17 @@ async function run() {
             if (cmd === "ping") await sock.sendMessage(chatJid, { text: "🏓 Pong!" });
             if (cmd === "autotyping on") { autoTypingEnabled = true; await sock.sendMessage(chatJid, { text: "✍️ Auto-typing ON" }); }
             if (cmd === "autotyping off") { autoTypingEnabled = false; await sock.sendMessage(chatJid, { text: "🚫 Auto-typing OFF" }); }
+            if (cmd === "save") await handleSaveStatus(msg, chatJid);
+            if (cmd === "savepp") await handleSavePP(msg, chatJid, args);
+            if (cmd === "vv") await handleVv(msg, chatJid);
+            if (cmd === "sticker") await handleSticker(msg, chatJid);
 
             if (cmd === "files") {
                 await sock.sendMessage(chatJid, { text: `📁 Login at: ${process.env.PUBLIC_URL}/my-files` });
             }
 
             if (cmd === "menu") {
-                await sock.sendMessage(chatJid, { text: `🤖 *Menu*\nping - alive\nfiles - web portal\nautotyping on/off\nsave / vv / savepp / sticker` });
+                await sock.sendMessage(chatJid, { text: `🤖 *Menu*\nping\nfiles\nautotyping on/off\nsave\nvv\nsavepp\nsticker` });
             }
         }
     });
