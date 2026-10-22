@@ -42,7 +42,8 @@ export function startTelegramBot() {
     });
 
     bot.callbackQuery(/^pinreg:/, async (ctx) => {
-        const phone = ctx.match[1];
+        // 🔑 FIX: Use ctx.callbackQuery.data to get the full string
+        const phone = ctx.callbackQuery.data.split(":")[1];
         const state = userState.get(ctx.chat.id) || { phones: [] };
         state.stage = "awaiting_pin";
         state.targetPhone = phone;
@@ -86,8 +87,11 @@ export function startTelegramBot() {
     });
 
     bot.callbackQuery(/^(qr|pair):/, async (ctx) => {
-        const [action, phone] = ctx.match[0].split(":");
+        // 🔑 FIX: Extract data reliably from ctx.callbackQuery.data
+        const data = ctx.callbackQuery.data;
+        const [action, phone] = data.split(":");
         const sessionId = `user_${phone}`;
+
         await ctx.answerCallbackQuery();
         killWorker(sessionId);
         await new Promise(r => setTimeout(r, 500));
@@ -111,7 +115,6 @@ export function startTelegramBot() {
 
             try {
                 const code = await new Promise<string>((resolve, reject) => {
-                    // 45 second timeout just in case WhatsApp is slow
                     const timer = setTimeout(() => { cleanup(); reject(new Error("Timeout. WhatsApp might be rate-limiting you.")); }, 45000);
 
                     const onPairing = (c: string) => { cleanup(); resolve(c); };
