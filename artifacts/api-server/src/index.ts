@@ -37,7 +37,6 @@ app.listen(port, async (err) => {
   try { await initSettings(); } catch (e) { logger.warn({ err: String(e) }, "initSettings failed — using defaults"); }
   try { await loadSessionsFromDb(); } catch (e) { logger.warn({ err: String(e) }, "loadSessionsFromDb failed — sessions in-memory only"); }
 
-  // startBot().catch((e) => logger.error({ err: e }, "WhatsApp bot failed to start"));
   startTelegramBot();
   startHeartbeat();
 });

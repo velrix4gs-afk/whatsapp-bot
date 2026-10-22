@@ -292,6 +292,7 @@ async function run() {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
+            // If we are doing pairing, DO NOT emit the QR to Telegram
             if (PAIRING_PHONE && !pairingRequested && !state.creds.registered) {
                 pairingRequested = true;
                 try {
@@ -305,8 +306,6 @@ async function run() {
                     ipc({ type: "pairing_error", error: e.message || "Unknown error" });
                     pairingRequested = false;
                 }
-            } else if (!PAIRING_PHONE) {
-                ipc({ type: "qr", qr });
             }
         }
 
@@ -321,10 +320,10 @@ async function run() {
             const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
             const reason = (lastDisconnect?.error as Boom)?.message || "Unknown reason";
 
-            // 🔑 If we were trying to pair and it closed, tell Telegram exactly why
+            // If it closed while pairing, tell Telegram
             if (pairingRequested && !state.creds.registered) {
                 log(`Connection closed during pairing. Reason: ${reason}`);
-                ipc({ type: "pairing_error", error: `WhatsApp refused connection: ${reason}` });
+                ipc({ type: "pairing_error", error: `WhatsApp closed the connection: ${reason}` });
                 return;
             }
 
@@ -332,6 +331,8 @@ async function run() {
                 ipc({ type: "logged_out" });
                 return;
             }
+
+            // Otherwise, reconnect
             setTimeout(() => run().catch(() => { }), 3000);
         }
     });
