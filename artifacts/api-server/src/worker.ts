@@ -168,7 +168,6 @@ async function handleViewOnce(msg: any, chatJid: string) {
         const buffer = await downloadMedia(media, type);
         const ext = mimeToExt(media.mimetype);
         const url = await saveAndUpload(buffer, `vo_${Date.now()}.${ext}`, media.mimetype);
-
         const caption = `🔓 *View-once ${type}* (auto-saved)\nFrom: +${chatJid.split("@")[0]}\n` + (url ? `\n📁 ${url}` : `\n_⚠️ Upload failed_`);
         if (type === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
         else if (type === "video") await sock.sendMessage(ownerJid, { video: buffer, caption });
@@ -189,7 +188,6 @@ async function handleReaction(msg: any) {
         const ext = mimeToExt(cached.mediaMsg.mimetype);
         const url = await saveAndUpload(buffer, `vo_react_${Date.now()}.${ext}`, cached.mediaMsg.mimetype);
         const caption = `🔓 *View-once ${cached.mediaType}* (via reaction)\nFrom: +${cached.senderJid.split("@")[0]}\n` + (url ? `\n📁 ${url}` : "");
-
         if (cached.mediaType === "image") await sock.sendMessage(getOwnerJid()!, { image: buffer, caption });
         else if (cached.mediaType === "video") await sock.sendMessage(getOwnerJid()!, { video: buffer, caption });
         else await sock.sendMessage(getOwnerJid()!, { audio: buffer, mimetype: cached.mediaMsg.mimetype, ptt: true });
@@ -199,7 +197,6 @@ async function handleReaction(msg: any) {
 async function handleSaveStatus(msg: any, chatJid: string) {
     const ctx = msg.message?.extendedTextMessage?.contextInfo;
     if (!ctx?.quotedMessage || ctx.remoteJid !== "status@broadcast") return;
-
     const media = ctx.quotedMessage.imageMessage || ctx.quotedMessage.videoMessage || ctx.quotedMessage.audioMessage;
     if (!media) return;
 
@@ -210,7 +207,6 @@ async function handleSaveStatus(msg: any, chatJid: string) {
         const url = await saveAndUpload(buffer, `status_${Date.now()}.${ext}`, media.mimetype);
 
         await sock.sendMessage(chatJid, { text: "✅ Status saved" });
-
         const ownerJid = getOwnerJid();
         if (ownerJid) {
             const posterNum = ctx.participant?.split("@")[0] || "unknown";
@@ -291,8 +287,8 @@ async function run() {
     sock.ev.on("connection.update", async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
 
+        // 🔑 CRITICAL: Wait for the QR event to fire before requesting the pairing code!
         if (qr) {
-            // If we are doing pairing, DO NOT emit the QR to Telegram
             if (PAIRING_PHONE && !pairingRequested && !state.creds.registered) {
                 pairingRequested = true;
                 try {
@@ -316,14 +312,12 @@ async function run() {
 
         if (connection === "close") {
             if (stopping) return;
-
             const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
             const reason = (lastDisconnect?.error as Boom)?.message || "Unknown reason";
 
-            // If it closed while pairing, tell Telegram
             if (pairingRequested && !state.creds.registered) {
                 log(`Connection closed during pairing. Reason: ${reason}`);
-                ipc({ type: "pairing_error", error: `WhatsApp closed the connection: ${reason}` });
+                ipc({ type: "pairing_error", error: `WhatsApp closed connection: ${reason}` });
                 return;
             }
 
@@ -331,8 +325,6 @@ async function run() {
                 ipc({ type: "logged_out" });
                 return;
             }
-
-            // Otherwise, reconnect
             setTimeout(() => run().catch(() => { }), 3000);
         }
     });
@@ -362,12 +354,8 @@ async function run() {
             if (cmd === "vv") await handleVv(msg, chatJid);
             if (cmd === "sticker") await handleSticker(msg, chatJid);
 
-            if (cmd === "files") {
-                await sock.sendMessage(chatJid, { text: `📁 Login at: ${process.env.PUBLIC_URL}/my-files` });
-            }
-            if (cmd === "menu") {
-                await sock.sendMessage(chatJid, { text: `🤖 *Menu*\nping\nfiles\nautotyping on/off\nsave\nvv\nsavepp\nsticker` });
-            }
+            if (cmd === "files") await sock.sendMessage(chatJid, { text: `📁 Login at: ${process.env.PUBLIC_URL}/my-files` });
+            if (cmd === "menu") await sock.sendMessage(chatJid, { text: `🤖 *Menu*\nping\nfiles\nautotyping on/off\nsave\nvv\nsavepp\nsticker` });
         }
     });
 }

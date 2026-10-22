@@ -64,7 +64,6 @@ export function startTelegramBot() {
             state.stage = undefined;
             userState.set(ctx.chat.id, state);
 
-            // 🔑 QR is GONE. Only Pairing Code.
             const kb = new InlineKeyboard().text("🔢 Get Pairing Code", `pair:${clean}`);
             await ctx.reply(`Ready to link +${clean}?`, { reply_markup: kb });
         }
@@ -94,29 +93,33 @@ export function startTelegramBot() {
         killWorker(sessionId);
         await new Promise(r => setTimeout(r, 500));
 
-        spawnWorker(sessionId, phone);
         await ctx.reply("⏳ Requesting Pairing Code...");
 
+        // 🔑 FIX: Attach the listener BEFORE spawning the worker to prevent race condition timeouts
+        const codePromise = new Promise<string>((resolve, reject) => {
+            const timer = setTimeout(() => { cleanup(); reject(new Error("Timeout. WhatsApp is not responding.")); }, 45000);
+
+            const onPairing = (c: string) => { cleanup(); resolve(c); };
+            const onError = (err: string) => { cleanup(); reject(new Error(err)); };
+
+            const cleanup = () => {
+                clearTimeout(timer);
+                workerEvents.removeListener(`pairing:${sessionId}`, onPairing);
+                workerEvents.removeListener(`pairing_error:${sessionId}`, onError);
+                workerEvents.removeListener(`error:${sessionId}`, onError);
+            };
+
+            workerEvents.once(`pairing:${sessionId}`, onPairing);
+            workerEvents.once(`pairing_error:${sessionId}`, onError);
+            workerEvents.once(`error:${sessionId}`, onError);
+        });
+
+        // NOW spawn the worker
+        spawnWorker(sessionId, phone);
+
         try {
-            const code = await new Promise<string>((resolve, reject) => {
-                const timer = setTimeout(() => { cleanup(); reject(new Error("Timeout. WhatsApp might be rate-limiting you.")); }, 30000);
-
-                const onPairing = (c: string) => { cleanup(); resolve(c); };
-                const onError = (err: string) => { cleanup(); reject(new Error(err)); };
-
-                const cleanup = () => {
-                    clearTimeout(timer);
-                    workerEvents.removeListener(`pairing:${sessionId}`, onPairing);
-                    workerEvents.removeListener(`pairing_error:${sessionId}`, onError);
-                    workerEvents.removeListener(`error:${sessionId}`, onError);
-                };
-
-                workerEvents.once(`pairing:${sessionId}`, onPairing);
-                workerEvents.once(`pairing_error:${sessionId}`, onError);
-                workerEvents.once(`error:${sessionId}`, onError);
-            });
-
-            await ctx.reply(`🔢 Your code: \`${code}\`\n\n⚡ **HURRY!**\nWhatsApp → Linked Devices → Link with Phone Number.\nYou only have **20 seconds** to type this in before it expires!`, { parse_mode: "Markdown" });
+            const code = await codePromise;
+            await ctx.reply(`🔢 Your code: \`${code}\`\n\n⚡ **HURRY!**\nOpen WhatsApp → Linked Devices → Link with Phone Number.\nYou only have **20 seconds** to type this in!`, { parse_mode: "Markdown" });
         } catch (err: any) {
             await ctx.reply(`❌ Pairing failed:\n\n${err.message}`);
         }
