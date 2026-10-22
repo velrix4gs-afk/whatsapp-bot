@@ -253,27 +253,29 @@ async function run() {
 
     sock.ev.on("creds.update", saveCreds);
 
-    // 🔑 FIX: Request pairing code immediately after socket init, outside connection.update
-    if (PAIRING_PHONE && !state.creds.registered) {
-        setTimeout(async () => {
-            try {
-                pairingRequested = true;
-                const code = await sock.requestPairingCode(PAIRING_PHONE.replace(/\D/g, ""));
-                ipc({ type: "pairing", code });
-                log(`Pairing code: ${code}`);
-            } catch (e) {
-                log(`Pairing failed: ${(e as Error).message}`);
-                ipc({ type: "pairing_error", error: (e as Error).message });
-                pairingRequested = false;
-            }
-        }, 3000); // Give it 3 seconds to fully connect before asking for code
-    }
 
     sock.ev.on("connection.update", async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Only send QR if we didn't request a pairing code
-        if (qr && !PAIRING_PHONE) ipc({ type: "qr", qr });
+        // 🔑 The QR event means the socket is finally ready
+        if (qr) {
+            if (PAIRING_PHONE && !pairingRequested && !state.creds.registered) {
+                pairingRequested = true;
+                try {
+                    // Phone number must be digits only
+                    const code = await sock.requestPairingCode(PAIRING_PHONE.replace(/\D/g, ""));
+                    ipc({ type: "pairing", code });
+                    log(`Pairing code: ${code}`);
+                } catch (e) {
+                    log(`Pairing failed: ${(e as Error).message}`);
+                    ipc({ type: "pairing_error", error: (e as Error).message });
+                    pairingRequested = false; // Allow retry
+                }
+            } else if (!PAIRING_PHONE) {
+                // Only send QR to Telegram if the user chose QR mode
+                ipc({ type: "qr", qr });
+            }
+        }
 
         if (connection === "open") {
             ipc({ type: "connected", phoneNumber: sock.user?.id?.split(":")[0] });
@@ -282,9 +284,13 @@ async function run() {
 
         if (connection === "close") {
             if (stopping) return;
+            // Don't reconnect while waiting for the user to enter the code
             if (pairingRequested && !state.creds.registered) return;
             const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
-            if (code === DisconnectReason.loggedOut) { ipc({ type: "logged_out" }); return; }
+            if (code === DisconnectReason.loggedOut) {
+                ipc({ type: "logged_out" });
+                return;
+            }
             setTimeout(() => run().catch(() => { }), 3000);
         }
     });
