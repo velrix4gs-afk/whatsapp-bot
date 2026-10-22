@@ -5,6 +5,9 @@ import makeWASocket, {
     makeCacheableSignalKeyStore,
     initAuthCreds,
     BufferJSON,
+    downloadContentFromMessage,
+    toBuffer,
+    jidNormalizedUser,
     type AuthenticationState,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
@@ -14,13 +17,16 @@ import pino from "pino";
 import sharp from "sharp";
 import { createClient } from "@supabase/supabase-js";
 import ws from "ws";
-import { downloadContentFromMessage, toBuffer, jidNormalizedUser } from "@whiskeysockets/baileys";
 
 const SESSION_ID = process.env.WORKER_SESSION_ID || "";
 const PAIRING_PHONE = process.env.WORKER_PHONE || "";
 const PHONE = SESSION_ID.replace(/^user_/, "");
 
 if (!SESSION_ID) process.exit(1);
+
+const BASE_DIR = path.join(process.cwd(), "data");
+const MEDIA_DIR = path.join(BASE_DIR, "sessions", SESSION_ID, "media");
+fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
 const supabase = createClient(
     process.env.SUPABASE_URL!,
@@ -79,7 +85,7 @@ async function useSupabaseAuthState(sessionId: string): Promise<{ state: Authent
     };
 }
 
-// ── Helpers & Features ────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────
 function ipc(msg: any) { try { if (process.send && process.connected) process.send(msg); } catch { } }
 function log(text: string) { console.log(`[${SESSION_ID}] ${text}`); ipc({ type: "log", text }); }
 
@@ -93,27 +99,40 @@ function mimeToExt(mime?: string | null): string {
     if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
     if (mime.includes("png")) return "png";
     if (mime.includes("mp4")) return "mp4";
+    if (mime.includes("webp")) return "webp";
     if (mime.includes("ogg")) return "ogg";
     return "bin";
 }
 
 function getOwnerJid(): string | null {
-    const raw = sock?.user?.id;
+    const raw = sock?.user?.id ?? sock?.user?.lid;
     if (!raw) return null;
+    try {
+        const n = jidNormalizedUser(raw);
+        if (n?.includes("@")) return n;
+    } catch { }
     const num = raw.split(":")[0]?.split("@")[0];
-    return num ? `${num}@s.whatsapp.net` : null;
+    if (num && /^\d+$/.test(num)) return `${num}@s.whatsapp.net`;
+    return null;
 }
 
 function isFromMe(msg: any): boolean {
-    return msg.key.fromMe === true || (msg.key.participant ?? msg.key.remoteJid) === getOwnerJid();
+    const ownerJid = getOwnerJid();
+    if (!ownerJid) return false;
+    const sender = msg.key.participant ?? msg.key.remoteJid ?? "";
+    return sender === ownerJid || msg.key.fromMe === true;
 }
 
 function getText(msg: any): string {
-    return msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || msg.message?.videoMessage?.caption || "";
+    const m = msg.message;
+    if (!m) return "";
+    return m.conversation || m.extendedTextMessage?.text || m.imageMessage?.caption || m.videoMessage?.caption || "";
 }
 
-async function downloadMedia(mediaMsg: any, type: "image" | "video" | "audio"): Promise<Buffer> {
-    const stream = await downloadContentFromMessage(mediaMsg, type);
+type MediaMsg = { url?: string; directPath?: string; mediaKey?: unknown; mimetype?: string };
+
+async function downloadMedia(mediaMsg: MediaMsg, mediaType: "image" | "video" | "audio"): Promise<Buffer> {
+    const stream = await downloadContentFromMessage(mediaMsg as any, mediaType);
     return toBuffer(stream);
 }
 
@@ -126,15 +145,44 @@ async function saveAndUpload(buffer: Buffer, filename: string, mime: string): Pr
     } catch { return null; }
 }
 
-function extractViewOnceMedia(message: any): { mediaMsg: any; mediaType: "image" | "video" | "audio" } | null {
-    if (!message) return null;
-    const inner = message?.viewOnceMessage?.message ?? message?.viewOnceMessageV2?.message ?? message?.viewOnceMessageV2Extension?.message;
-    if (inner) {
-        if (inner.imageMessage) return { mediaMsg: inner.imageMessage, mediaType: "image" };
-        if (inner.videoMessage) return { mediaMsg: inner.videoMessage, mediaType: "video" };
-        if (inner.audioMessage) return { mediaMsg: inner.audioMessage, mediaType: "audio" };
-    }
-    return null;
+// ── Features ───────────────────────────────────────────────────────────
+const viewOnceCache = new Map<string, { mediaMsg: MediaMsg; mediaType: "image" | "video" | "audio"; senderJid: string }>();
+
+async function handleViewOnce(msg: any, chatJid: string) {
+    const m = msg.message;
+    if (m.conversation || m.extendedTextMessage?.text) return;
+
+    const inner = m.viewOnceMessage?.message ?? m.viewOnceMessageV2?.message ?? m.viewOnceMessageV2Extension?.message;
+    let media, type;
+    if (inner?.imageMessage) { media = inner.imageMessage; type = "image"; }
+    else if (inner?.videoMessage) { media = inner.videoMessage; type = "video"; }
+
+    if (!media) return;
+    const ownerJid = getOwnerJid();
+    if (!ownerJid) return;
+
+    if (msg.key.id) viewOnceCache.set(msg.key.id, { mediaMsg: media, mediaType: type, senderJid: chatJid });
+
+    try {
+        const buffer = await downloadMedia(media, type);
+        const url = await saveAndUpload(buffer, `vo_${Date.now()}.${mimeToExt(media.mimetype)}`, media.mimetype);
+        await sock.sendMessage(ownerJid, { [type]: buffer, caption: `🔓 View-once saved\n📁 ${url || 'Failed upload'}` });
+    } catch (e) { log(`VO failed: ${e}`); }
+}
+
+async function handleReaction(msg: any) {
+    const reaction = msg.message?.reactionMessage;
+    if (!reaction || !isFromMe(msg)) return;
+    if (!["🙂", "😣", "🤪", "😇", "🥺"].includes(reaction.text)) return;
+
+    const cached = viewOnceCache.get(reaction.key?.id);
+    if (!cached) return;
+
+    try {
+        const buffer = await downloadMedia(cached.mediaMsg, cached.mediaType);
+        const url = await saveAndUpload(buffer, `vo_react_${Date.now()}.${mimeToExt(cached.mediaMsg.mimetype)}`, cached.mediaMsg.mimetype);
+        await sock.sendMessage(getOwnerJid()!, { [cached.mediaType]: buffer, caption: `🔓 View-once saved via reaction\n📁 ${url}` });
+    } catch (e) { log(`Reaction failed: ${e}`); }
 }
 
 // ── Main Run ───────────────────────────────────────────────────────────
@@ -153,26 +201,26 @@ async function run() {
 
     sock.ev.on("creds.update", saveCreds);
 
-    // 🔑 FIX 1: Request Pairing Code Immediately (3s after init), outside of QR event
-    if (PAIRING_PHONE && !state.creds.registered) {
-        setTimeout(async () => {
-            try {
-                pairingRequested = true;
-                const code = await sock.requestPairingCode(PAIRING_PHONE.replace(/\D/g, ""));
-                ipc({ type: "pairing", code });
-                log(`Pairing code: ${code}`);
-            } catch (e) {
-                log(`Pairing failed: ${(e as Error).message}`);
-                pairingRequested = false;
-            }
-        }, 3000);
-    }
-
     sock.ev.on("connection.update", async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Only send QR if we didn't request a pairing code
-        if (qr && !PAIRING_PHONE) ipc({ type: "qr", qr });
+        if (qr) {
+            // 🔑 FIX: Request pairing code ONLY when the QR is generated (socket is ready)
+            if (PAIRING_PHONE && !pairingRequested && !state.creds.registered) {
+                pairingRequested = true;
+                try {
+                    const code = await sock.requestPairingCode(PAIRING_PHONE.replace(/\D/g, ""));
+                    ipc({ type: "pairing", code });
+                    log(`Pairing code: ${code}`);
+                } catch (e) {
+                    log(`Pairing failed: ${(e as Error).message}`);
+                    ipc({ type: "pairing_error", error: (e as Error).message });
+                    pairingRequested = false;
+                }
+            } else if (!PAIRING_PHONE) {
+                ipc({ type: "qr", qr });
+            }
+        }
 
         if (connection === "open") {
             ipc({ type: "connected", phoneNumber: sock.user?.id?.split(":")[0] });
@@ -181,13 +229,9 @@ async function run() {
 
         if (connection === "close") {
             if (stopping) return;
-            if (pairingRequested && !state.creds.registered) return; // don't reconnect while pairing
-
+            if (pairingRequested && !state.creds.registered) return;
             const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
-            if (code === DisconnectReason.loggedOut) {
-                ipc({ type: "logged_out" });
-                return;
-            }
+            if (code === DisconnectReason.loggedOut) { ipc({ type: "logged_out" }); return; }
             setTimeout(() => run().catch(() => { }), 3000);
         }
     });
@@ -196,51 +240,29 @@ async function run() {
         for (const msg of messages) {
             if (!msg.message) continue;
             const chatJid = msg.key.remoteJid || "";
+            const text = getText(msg);
+            const cmd = text.trim().toLowerCase().replace(/^\./, "");
+            const args = text.trim().split(/\s+/).slice(1);
 
-            if (msg.message?.reactionMessage) {
-                const reaction = msg.message.reactionMessage;
-                if (reaction.text && ["🙂", "😣", "🤪", "😇", "🥺"].includes(reaction.text) && isFromMe(msg)) {
-                    // Reaction trigger logic (simplified for brevity, assuming you had it)
-                }
-                continue;
-            }
-
+            if (msg.message?.reactionMessage) { await handleReaction(msg); continue; }
             if (chatJid === "status@broadcast") continue;
 
             if (autoTypingEnabled && !isFromMe(msg)) {
                 try { await sock.sendPresenceUpdate("composing", chatJid); } catch { }
             }
 
-            // View Once auto-save
-            const vo = extractViewOnceMedia(msg.message);
-            if (vo) {
-                try {
-                    const buffer = await downloadMedia(vo.mediaMsg, vo.mediaType);
-                    const ext = mimeToExt(vo.mediaMsg.mimetype);
-                    const url = await saveAndUpload(buffer, `vo_${Date.now()}.${ext}`, vo.mediaMsg.mimetype);
-                    if (url) await sock.sendMessage(getOwnerJid()!, { image: buffer, caption: `🔓 View-once saved\n📁 ${url}` });
-                } catch { }
-            }
-
-            const text = getText(msg);
-            if (!text) continue;
-            const cmd = text.trim().toLowerCase().replace(/^\./, "");
+            await handleViewOnce(msg, chatJid);
 
             if (cmd === "ping") await sock.sendMessage(chatJid, { text: "🏓 Pong!" });
             if (cmd === "autotyping on") { autoTypingEnabled = true; await sock.sendMessage(chatJid, { text: "✍️ Auto-typing ON" }); }
             if (cmd === "autotyping off") { autoTypingEnabled = false; await sock.sendMessage(chatJid, { text: "🚫 Auto-typing OFF" }); }
 
-            if (cmd === "save") {
-                const ctx = msg.message?.extendedTextMessage?.contextInfo;
-                if (ctx?.remoteJid === "status@broadcast" && ctx.quotedMessage) {
-                    const media = ctx.quotedMessage.imageMessage || ctx.quotedMessage.videoMessage;
-                    if (media) {
-                        const buffer = await downloadMedia(media, ctx.quotedMessage.imageMessage ? "image" : "video");
-                        const url = await saveAndUpload(buffer, `status_${Date.now()}.jpg`, media.mimetype);
-                        await sock.sendMessage(chatJid, { text: "✅ Status saved" });
-                        await sock.sendMessage(getOwnerJid()!, { image: buffer, caption: `📁 ${url}` });
-                    }
-                }
+            if (cmd === "files") {
+                await sock.sendMessage(chatJid, { text: `📁 Login at: ${process.env.PUBLIC_URL}/my-files` });
+            }
+
+            if (cmd === "menu") {
+                await sock.sendMessage(chatJid, { text: `🤖 *Menu*\nping - alive\nfiles - web portal\nautotyping on/off\nsave / vv / savepp / sticker` });
             }
         }
     });
