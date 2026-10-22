@@ -1,6 +1,5 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-// import { startBot } from "./lib/whatsapp-bot";
 import { startHeartbeat } from "./lib/heartbeat";
 import { initSettings, loadSessionsFromDb } from "./lib/settings";
 import { startTelegramBot } from "./lib/telegram-bot";
