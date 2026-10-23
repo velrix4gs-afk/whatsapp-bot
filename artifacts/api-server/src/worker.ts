@@ -34,36 +34,49 @@ const supabase = createClient(
     { realtime: { transport: ws as any } }
 );
 
-// ── Supabase Auth State ──────────────────────────────────────────────
+// ── Helper to chunk arrays (Prevents RAM spikes) ─────────────────────
+function chunkArray<T>(arr: T[], size: number): T[][] {
+    const chunks = [];
+    for (let i = 0; i < arr.length; i += size) {
+        chunks.push(arr.slice(i, i + size));
+    }
+    return chunks;
+}
+
+// ── Supabase Auth State (Chunked Writes) ─────────────────────────────
 async function useSupabaseAuthState(sessionId: string): Promise<{ state: AuthenticationState; saveCreds: () => Promise<void> }> {
     const readData = async (key: string) => {
         try {
-            const { data, error } = await supabase.from("baileys_auth").select("data").eq("id", `${sessionId}_${key}`).maybeSingle();
-            if (error) console.error(`[Supabase Read Error] ${key}:`, error.message);
+            const { data } = await supabase.from("baileys_auth").select("data").eq("id", `${sessionId}_${key}`).maybeSingle();
             if (data && data.data) return JSON.parse(JSON.stringify(data.data), BufferJSON.reviver);
             return null;
-        } catch (e) {
-            console.error(`[Read Exception] ${key}:`, e);
-            return null;
+        } catch { return null; }
+    };
+
+    const writeBulkChunked = async (rows: { id: string, data: any }[]) => {
+        if (rows.length === 0) return;
+
+        // 🔑 Split into chunks of 50 to prevent Render RAM crashes
+        const chunks = chunkArray(rows, 50);
+        for (const chunk of chunks) {
+            try {
+                const { error } = await supabase.from("baileys_auth").upsert(chunk);
+                if (error) console.error(`[Supabase Write Error]:`, error.message);
+                // Tiny delay to let the event loop breathe
+                await new Promise(r => setTimeout(r, 50));
+            } catch (e) {
+                console.error(`[Write Exception]:`, e);
+            }
         }
     };
 
-    const writeData = async (key: string, data: any) => {
+    const deleteBulk = async (ids: string[]) => {
+        if (ids.length === 0) return;
         try {
-            const serialized = JSON.parse(JSON.stringify(data, BufferJSON.replacer));
-            const { error } = await supabase.from("baileys_auth").upsert({ id: `${sessionId}_${key}`, data: serialized });
-            if (error) console.error(`[Supabase Write Error] ${key}:`, error.message);
+            const { error } = await supabase.from("baileys_auth").delete().in("id", ids);
+            if (error) console.error(`[Supabase Delete Error]:`, error.message);
         } catch (e) {
-            console.error(`[Write Exception] ${key}:`, e);
-        }
-    };
-
-    const removeData = async (key: string) => {
-        try {
-            const { error } = await supabase.from("baileys_auth").delete().eq("id", `${sessionId}_${key}`);
-            if (error) console.error(`[Supabase Delete Error] ${key}:`, error.message);
-        } catch (e) {
-            console.error(`[Delete Exception] ${key}:`, e);
+            console.error(`[Delete Exception]:`, e);
         }
     };
 
@@ -85,19 +98,26 @@ async function useSupabaseAuthState(sessionId: string): Promise<{ state: Authent
                     return data;
                 },
                 set: async (data) => {
-                    const tasks: Promise<void>[] = [];
+                    const upserts: { id: string, data: any }[] = [];
+                    const deletes: string[] = [];
+
                     for (const category in data) {
                         for (const id in data[category as keyof typeof data]) {
                             const value = data[category as keyof typeof data]![id];
-                            const key = `${category}-${id}`;
-                            tasks.push(value ? writeData(key, value) : removeData(key));
+                            const rowId = `${sessionId}_${category}-${id}`;
+                            if (value) {
+                                upserts.push({ id: rowId, data: JSON.parse(JSON.stringify(value, BufferJSON.replacer)) });
+                            } else {
+                                deletes.push(rowId);
+                            }
                         }
                     }
-                    await Promise.all(tasks);
+
+                    await Promise.all([writeBulkChunked(upserts), deleteBulk(deletes)]);
                 },
             },
         },
-        saveCreds: () => writeData("creds", creds),
+        saveCreds: () => writeBulkChunked([{ id: `${sessionId}_creds`, data: JSON.parse(JSON.stringify(creds, BufferJSON.replacer)) }]),
     };
 }
 
@@ -321,8 +341,7 @@ async function run() {
         }
 
         if (connection === "open") {
-            // 🔑 CRITICAL FIX: Reset the pairing flag so it doesn't block reconnects
-            pairingRequested = false;
+            pairingRequested = false; // Reset flag to allow reconnects
             ipc({ type: "connected", phoneNumber: sock.user?.id?.split(":")[0] });
             log(`✅ Connected successfully`);
         }
@@ -354,6 +373,8 @@ async function run() {
             const cmd = text.trim().toLowerCase().replace(/^\./, "");
             const args = text.trim().split(/\s+/).slice(1);
 
+            console.log(`[DEBUG] Received: "${text}" from ${chatJid}`);
+
             if (msg.message?.reactionMessage) { await handleReaction(msg); continue; }
             if (chatJid === "status@broadcast") { await handleStatusReaction(msg); continue; }
 
@@ -371,7 +392,6 @@ async function run() {
 
             if (cmd === "vv") {
                 await handleVv(msg, chatJid);
-                // 🔑 NEW: Delete the .vv text message from the chat
                 try { await sock.sendMessage(chatJid, { delete: msg.key }); } catch { }
             }
 
