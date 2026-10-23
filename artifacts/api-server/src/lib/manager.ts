@@ -75,7 +75,6 @@ export function spawnWorker(sessionId: string, phone?: string): WorkerInfo {
         if (workers.get(sessionId) !== info) return;
         if (info.killedByUser) { workers.delete(sessionId); return; }
 
-        // 🔑 If it crashed before generating a code, tell Telegram
         if (info.pairingCode === undefined && info.phone) {
             workerEvents.emit(`error:${sessionId}`, `Worker crashed (code ${code}). Check Render logs.`);
         }
@@ -104,4 +103,9 @@ export function killWorker(sessionId: string): void {
 
 export function getWorker(sessionId: string): WorkerInfo | undefined {
     return workers.get(sessionId);
+}
+
+// 🔑 Added this back in so sessions.ts doesn't crash
+export function getAllWorkers(): WorkerInfo[] {
+    return Array.from(workers.values());
 }
