@@ -239,6 +239,7 @@ async function run() {
         printQRInTerminal: false,
         syncFullHistory: false,
         logger: pino({ level: "silent" }),
+        markOnlineOnConnect: true, // 👈 ADD THIS LINE
     });
 
     sock.ev.on("creds.update", saveCreds);
@@ -305,6 +306,14 @@ async function run() {
 
             if (cmd === "ping") await sock.sendMessage(chatJid, { text: "🏓 Pong!" });
             if (cmd === "autotyping on") { autoTypingEnabled = true; await sock.sendMessage(chatJid, { text: "✍️ Auto-typing ON" }); }
+            if (cmd === "presence off") {
+                await sock.sendPresenceUpdate("unavailable").catch(() => { });
+                await sock.sendMessage(chatJid, { text: "👻 Bot is now invisible (Offline)." });
+            }
+            if (cmd === "presence on") {
+                await sock.sendPresenceUpdate("available").catch(() => { });
+                await sock.sendMessage(chatJid, { text: "🟢 Bot is now visible (Online)." });
+            }
             if (cmd === "autotyping off") { autoTypingEnabled = false; await sock.sendMessage(chatJid, { text: "🚫 Auto-typing OFF" }); }
             if (cmd === "savepp") await handleSavePP(msg, chatJid, args);
             if (cmd === "sticker") await handleSticker(msg, chatJid);
@@ -315,7 +324,14 @@ async function run() {
     });
 }
 
-const keepAlive = setInterval(() => { }, 30_000);
+// Keep process alive AND keep WhatsApp status as "Online"
+const keepAlive = setInterval(() => {
+    try {
+        if (sock?.user) {
+            sock.sendPresenceUpdate("available").catch(() => { });
+        }
+    } catch { }
+}, 60_000);
 process.on("message", (m: any) => { if (m?.type === "kill") { clearInterval(keepAlive); process.exit(0); } });
 process.on("SIGTERM", () => process.exit(0));
 process.on("SIGINT", () => process.exit(0));
