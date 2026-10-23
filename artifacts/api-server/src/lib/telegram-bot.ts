@@ -11,7 +11,6 @@ function hashPin(pin: string, phone: string) { return crypto.createHash("sha256"
 
 const userState = new Map<number, { phones: string[]; stage?: "awaiting_phone" | "awaiting_pin"; targetPhone?: string }>();
 
-// 🔑 Restored: Auto-delete the Telegram message when connected
 function watchAndDeleteOnConnect(sessionId: string, chatId: number, messageId: number) {
     const handler = async () => {
         try { await bot!.api.deleteMessage(chatId, messageId); } catch { }
@@ -43,12 +42,38 @@ export function startTelegramBot() {
             state.stage = "awaiting_pin";
             state.targetPhone = state.phones[0];
             userState.set(ctx.chat.id, state);
-            return ctx.reply(`🔐 Send a 4-digit PIN for +${state.phones[0]}`);
+            return ctx.reply(`🔐 Send a 4-digit PIN for +${state.phones[0]}\nYou will use this to login to ${process.env.PUBLIC_URL}/my-files`);
         }
 
         const kb = new InlineKeyboard();
         state.phones.forEach(p => kb.text(`+${p}`, `pinreg:${p}`).row());
         await ctx.reply("Which number do you want to set a PIN for?", { reply_markup: kb });
+    });
+
+    bot.command("status", async (ctx) => {
+        const state = userState.get(ctx.chat.id);
+        if (!state || state.phones.length === 0) return ctx.reply("❌ No linked numbers. Use /link");
+
+        let msg = "📱 *Your Linked Numbers:*\n\n";
+        for (const phone of state.phones) {
+            const sessionId = `user_${phone}`;
+            const w = getWorker(sessionId);
+            const icon = w?.status === "connected" ? "✅" : "⚠️";
+            msg += `${icon} +${phone} (${w?.status || "offline"})\n`;
+        }
+        await ctx.reply(msg, { parse_mode: "Markdown" });
+    });
+
+    bot.command("unlink", async (ctx) => {
+        const state = userState.get(ctx.chat.id);
+        if (!state || state.phones.length === 0) return ctx.reply("❌ Nothing to unlink.");
+
+        // Unlink the first number (or you can build a keyboard for this too)
+        const phone = state.phones[0];
+        killWorker(`user_${phone}`);
+        state.phones = state.phones.filter(p => p !== phone);
+        userState.set(ctx.chat.id, state);
+        await ctx.reply(`✅ Unlinked +${phone}.`);
     });
 
     bot.callbackQuery(/^pinreg:/, async (ctx) => {
@@ -91,7 +116,7 @@ export function startTelegramBot() {
 
             state.stage = undefined;
             userState.set(ctx.chat.id, state);
-            await ctx.reply(`✅ PIN set for +${state.targetPhone}!\nLogin at ${process.env.PUBLIC_URL}/my-files`);
+            await ctx.reply(`✅ PIN set for +${state.targetPhone}!\n\nLogin at:\n${process.env.PUBLIC_URL}/my-files`);
         }
     });
 
@@ -125,8 +150,6 @@ export function startTelegramBot() {
         try {
             const code = await codePromise;
             const sentMsg = await ctx.reply(`🔢 Your code: \`${code}\`\n\n⚡ **HURRY!**\nOpen WhatsApp → Linked Devices → Link with Phone Number.\nYou only have **20 seconds** to type this in!`, { parse_mode: "Markdown" });
-
-            // 🔑 Auto-delete this message once the bot is connected
             watchAndDeleteOnConnect(sessionId, ctx.chat.id, sentMsg.message_id);
         } catch (err: any) {
             await ctx.reply(`❌ Pairing failed:\n\n${err.message}`);

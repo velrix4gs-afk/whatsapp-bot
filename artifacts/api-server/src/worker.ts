@@ -34,7 +34,6 @@ const supabase = createClient(
     { realtime: { transport: ws as any } }
 );
 
-// ── Helpers ───────────────────────────────────────────────────────────
 function ipc(msg: any) { try { if (process.send && process.connected) process.send(msg); } catch { } }
 function log(text: string) { console.log(`[${SESSION_ID}] ${text}`); ipc({ type: "log", text }); }
 
@@ -85,13 +84,12 @@ async function downloadMedia(mediaMsg: MediaMsg, mediaType: "image" | "video" | 
     return toBuffer(stream);
 }
 
-async function saveAndUpload(buffer: Buffer, filename: string, mime: string): Promise<string | null> {
+async function saveToSupabase(buffer: Buffer, filename: string, mime: string): Promise<boolean> {
     try {
         const storagePath = `${PHONE}/${filename}`;
         const { error } = await supabase.storage.from("saved_media").upload(storagePath, buffer, { contentType: mime, upsert: false });
-        if (error) return null;
-        return supabase.storage.from("saved_media").getPublicUrl(storagePath).data?.publicUrl ?? null;
-    } catch { return null; }
+        return !error;
+    } catch { return false; }
 }
 
 // ── Features ───────────────────────────────────────────────────────────
@@ -116,8 +114,12 @@ async function handleViewOnce(msg: any, chatJid: string) {
     try {
         const buffer = await downloadMedia(media, type);
         const ext = mimeToExt(media.mimetype);
-        const url = await saveAndUpload(buffer, `vo_${Date.now()}.${ext}`, media.mimetype);
-        const caption = `🔓 *View-once ${type}* (auto-saved)\nFrom: +${chatJid.split("@")[0]}\n` + (url ? `\n📁 ${url}` : `\n_⚠️ Upload failed_`);
+        const success = await saveToSupabase(buffer, `vo_${Date.now()}.${ext}`, media.mimetype);
+
+        // 🔑 Auto-save DM (No URL, just image and web link)
+        const webLink = `${process.env.PUBLIC_URL}/my-files`;
+        const caption = `🔓 *View-once ${type}* (auto-saved)\nFrom: +${chatJid.split("@")[0]}\n\n📁 View all files here: ${webLink}` + (success ? "" : "\n_⚠️ Cloud upload failed_");
+
         if (type === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
         else if (type === "video") await sock.sendMessage(ownerJid, { video: buffer, caption });
         else await sock.sendMessage(ownerJid, { audio: buffer, mimetype: media.mimetype, ptt: true });
@@ -135,8 +137,11 @@ async function handleReaction(msg: any) {
     try {
         const buffer = await downloadMedia(cached.mediaMsg, cached.mediaType);
         const ext = mimeToExt(cached.mediaMsg.mimetype);
-        const url = await saveAndUpload(buffer, `vo_react_${Date.now()}.${ext}`, cached.mediaMsg.mimetype);
-        const caption = `🔓 *View-once ${cached.mediaType}* (via reaction)\nFrom: +${cached.senderJid.split("@")[0]}\n` + (url ? `\n📁 ${url}` : "");
+        await saveToSupabase(buffer, `vo_react_${Date.now()}.${ext}`, cached.mediaMsg.mimetype);
+
+        const webLink = `${process.env.PUBLIC_URL}/my-files`;
+        const caption = `🔓 *View-once ${cached.mediaType}* (via reaction)\nFrom: +${cached.senderJid.split("@")[0]}\n\n📁 View: ${webLink}`;
+
         if (cached.mediaType === "image") await sock.sendMessage(getOwnerJid()!, { image: buffer, caption });
         else if (cached.mediaType === "video") await sock.sendMessage(getOwnerJid()!, { video: buffer, caption });
         else await sock.sendMessage(getOwnerJid()!, { audio: buffer, mimetype: cached.mediaMsg.mimetype, ptt: true });
@@ -153,13 +158,14 @@ async function handleSaveStatus(msg: any, chatJid: string) {
         const type = ctx.quotedMessage.imageMessage ? "image" : ctx.quotedMessage.videoMessage ? "video" : "audio";
         const buffer = await downloadMedia(media, type);
         const ext = mimeToExt(media.mimetype);
-        const url = await saveAndUpload(buffer, `status_${Date.now()}.${ext}`, media.mimetype);
+        await saveToSupabase(buffer, `status_${Date.now()}.${ext}`, media.mimetype);
 
         await sock.sendMessage(chatJid, { text: "✅ Status saved" });
         const ownerJid = getOwnerJid();
         if (ownerJid) {
+            const webLink = `${process.env.PUBLIC_URL}/my-files`;
             const posterNum = ctx.participant?.split("@")[0] || "unknown";
-            const caption = `🔓 *Status ${type}*\nFrom: +${posterNum}\n` + (url ? `\n📁 ${url}` : "");
+            const caption = `🔓 *Status ${type}*\nFrom: +${posterNum}\n\n📁 View: ${webLink}`;
             if (type === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
             else if (type === "video") await sock.sendMessage(ownerJid, { video: buffer, caption });
             else await sock.sendMessage(ownerJid, { audio: buffer, mimetype: media.mimetype, ptt: true });
@@ -173,8 +179,10 @@ async function handleSavePP(msg: any, chatJid: string, args: string[]) {
         const pp = await sock.profilePictureUrl(targetJid, "image");
         if (!pp) return sock.sendMessage(chatJid, { text: "❌ No profile picture." });
         const buffer = Buffer.from(await (await fetch(pp)).arrayBuffer());
-        const url = await saveAndUpload(buffer, `pp_${targetJid.split("@")[0]}_${Date.now()}.jpg`, "image/jpeg");
-        await sock.sendMessage(chatJid, { text: `✅ Profile pic saved\n📁 ${url}` });
+        await saveToSupabase(buffer, `pp_${targetJid.split("@")[0]}_${Date.now()}.jpg`, "image/jpeg");
+
+        const webLink = `${process.env.PUBLIC_URL}/my-files`;
+        await sock.sendMessage(chatJid, { text: `✅ Profile pic saved\n📁 View: ${webLink}` });
     } catch (e) { log(`SavePP failed: ${e}`); }
 }
 
@@ -188,8 +196,10 @@ async function handleVv(msg: any, chatJid: string) {
         const type = inner.imageMessage ? "image" : "video";
         const buffer = await downloadMedia(media, type);
         const ext = mimeToExt(media.mimetype);
-        const url = await saveAndUpload(buffer, `vv_${Date.now()}.${ext}`, media.mimetype);
-        const caption = `🔓 *View-once ${type} (.vv)*\n` + (url ? `\n📁 ${url}` : "");
+        await saveToSupabase(buffer, `vv_${Date.now()}.${ext}`, media.mimetype);
+
+        const webLink = `${process.env.PUBLIC_URL}/my-files`;
+        const caption = `🔓 *View-once ${type} (.vv)*\n\n📁 View: ${webLink}`;
         if (type === "image") await sock.sendMessage(getOwnerJid()!, { image: buffer, caption });
         else await sock.sendMessage(getOwnerJid()!, { video: buffer, caption });
     } catch (e) { log(`vv failed: ${e}`); }
@@ -213,13 +223,12 @@ async function handleStatusReaction(msg: any) {
     const emoji = REACTIONS[Math.floor(Math.random() * REACTIONS.length)];
     try {
         await sock.sendMessage(chatJid, { react: { text: emoji, key: msg.key } });
-        log(`Liked status with ${emoji}`);
-    } catch (e) { log(`Like failed: ${e}`); }
+        log(`[STATUS] Liked status with ${emoji}`); // 🔑 Debug log
+    } catch (e) { log(`Status like failed: ${e}`); }
 }
 
 // ── Main Run ───────────────────────────────────────────────────────────
 async function run() {
-    // 🔑 DIAGNOSTIC: Use local file system for auth instead of Supabase
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     const { version } = await fetchLatestBaileysVersion();
 
@@ -242,12 +251,10 @@ async function run() {
                 pairingRequested = true;
                 try {
                     const cleanPhone = PAIRING_PHONE.replace(/\D/g, "");
-                    log(`Requesting pairing code for ${cleanPhone}...`);
                     const code = await sock.requestPairingCode(cleanPhone);
                     ipc({ type: "pairing", code });
                     log(`✅ Pairing code: ${code}`);
                 } catch (e: any) {
-                    log(`❌ Pairing failed: ${e.message}`);
                     ipc({ type: "pairing_error", error: e.message || "Unknown error" });
                     pairingRequested = false;
                 }
@@ -263,19 +270,8 @@ async function run() {
         if (connection === "close") {
             if (stopping) return;
             const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
-            const reason = (lastDisconnect?.error as Boom)?.message || "Unknown reason";
-
-            log(`❌ Connection closed. Code: ${code}, Reason: ${reason}`);
-
-            if (pairingRequested && !state.creds.registered) {
-                ipc({ type: "pairing_error", error: `WhatsApp closed connection: ${reason}` });
-                return;
-            }
-
-            if (code === DisconnectReason.loggedOut) {
-                ipc({ type: "logged_out" });
-                return;
-            }
+            if (pairingRequested && !state.creds.registered) return;
+            if (code === DisconnectReason.loggedOut) { ipc({ type: "logged_out" }); return; }
             setTimeout(() => run().catch(() => { }), 3000);
         }
     });
@@ -288,8 +284,6 @@ async function run() {
             const cmd = text.trim().toLowerCase().replace(/^\./, "");
             const args = text.trim().split(/\s+/).slice(1);
 
-            console.log(`[DEBUG] Received: "${text}" from ${chatJid}`);
-
             if (msg.message?.reactionMessage) { await handleReaction(msg); continue; }
             if (chatJid === "status@broadcast") { await handleStatusReaction(msg); continue; }
 
@@ -299,18 +293,23 @@ async function run() {
 
             await handleViewOnce(msg, chatJid);
 
+            // 🔑 SNAPPY DELETION: Delete commands immediately before processing
+            if (cmd === "vv") {
+                try { await sock.sendMessage(chatJid, { delete: msg.key }); } catch { }
+                await handleVv(msg, chatJid);
+            }
+            if (cmd === "save") {
+                try { await sock.sendMessage(chatJid, { delete: msg.key }); } catch { }
+                await handleSaveStatus(msg, chatJid);
+            }
+
             if (cmd === "ping") await sock.sendMessage(chatJid, { text: "🏓 Pong!" });
             if (cmd === "autotyping on") { autoTypingEnabled = true; await sock.sendMessage(chatJid, { text: "✍️ Auto-typing ON" }); }
             if (cmd === "autotyping off") { autoTypingEnabled = false; await sock.sendMessage(chatJid, { text: "🚫 Auto-typing OFF" }); }
-            if (cmd === "save") await handleSaveStatus(msg, chatJid);
             if (cmd === "savepp") await handleSavePP(msg, chatJid, args);
-            if (cmd === "vv") {
-                await handleVv(msg, chatJid);
-                try { await sock.sendMessage(chatJid, { delete: msg.key }); } catch { }
-            }
             if (cmd === "sticker") await handleSticker(msg, chatJid);
 
-            if (cmd === "files") await sock.sendMessage(chatJid, { text: `📁 Login at: ${process.env.PUBLIC_URL}/my-files` });
+            if (cmd === "files") await sock.sendMessage(chatJid, { text: `📁 View all files: ${process.env.PUBLIC_URL}/my-files` });
             if (cmd === "menu") await sock.sendMessage(chatJid, { text: `🤖 *Menu*\nping\nfiles\nautotyping on/off\nsave\nvv\nsavepp\nsticker` });
         }
     });
