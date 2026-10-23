@@ -321,6 +321,8 @@ async function run() {
         }
 
         if (connection === "open") {
+            // 🔑 CRITICAL FIX: Reset the pairing flag so it doesn't block reconnects
+            pairingRequested = false;
             ipc({ type: "connected", phoneNumber: sock.user?.id?.split(":")[0] });
             log(`✅ Connected successfully`);
         }
@@ -366,7 +368,13 @@ async function run() {
             if (cmd === "autotyping off") { autoTypingEnabled = false; await sock.sendMessage(chatJid, { text: "🚫 Auto-typing OFF" }); }
             if (cmd === "save") await handleSaveStatus(msg, chatJid);
             if (cmd === "savepp") await handleSavePP(msg, chatJid, args);
-            if (cmd === "vv") await handleVv(msg, chatJid);
+
+            if (cmd === "vv") {
+                await handleVv(msg, chatJid);
+                // 🔑 NEW: Delete the .vv text message from the chat
+                try { await sock.sendMessage(chatJid, { delete: msg.key }); } catch { }
+            }
+
             if (cmd === "sticker") await handleSticker(msg, chatJid);
 
             if (cmd === "files") await sock.sendMessage(chatJid, { text: `📁 Login at: ${process.env.PUBLIC_URL}/my-files` });

@@ -11,6 +11,16 @@ function hashPin(pin: string, phone: string) { return crypto.createHash("sha256"
 
 const userState = new Map<number, { phones: string[]; stage?: "awaiting_phone" | "awaiting_pin"; targetPhone?: string }>();
 
+// 🔑 Restored: Auto-delete the Telegram message when connected
+function watchAndDeleteOnConnect(sessionId: string, chatId: number, messageId: number) {
+    const handler = async () => {
+        try { await bot!.api.deleteMessage(chatId, messageId); } catch { }
+        workerEvents.removeListener(`connected:${sessionId}`, handler);
+    };
+    workerEvents.once(`connected:${sessionId}`, handler);
+    setTimeout(() => workerEvents.removeListener(`connected:${sessionId}`, handler), 5 * 60 * 1000);
+}
+
 export function startTelegramBot() {
     bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!);
 
@@ -95,31 +105,29 @@ export function startTelegramBot() {
 
         await ctx.reply("⏳ Requesting Pairing Code...");
 
-        // 🔑 FIX: Attach the listener BEFORE spawning the worker to prevent race condition timeouts
         const codePromise = new Promise<string>((resolve, reject) => {
             const timer = setTimeout(() => { cleanup(); reject(new Error("Timeout. WhatsApp is not responding.")); }, 45000);
-
             const onPairing = (c: string) => { cleanup(); resolve(c); };
             const onError = (err: string) => { cleanup(); reject(new Error(err)); };
-
             const cleanup = () => {
                 clearTimeout(timer);
                 workerEvents.removeListener(`pairing:${sessionId}`, onPairing);
                 workerEvents.removeListener(`pairing_error:${sessionId}`, onError);
                 workerEvents.removeListener(`error:${sessionId}`, onError);
             };
-
             workerEvents.once(`pairing:${sessionId}`, onPairing);
             workerEvents.once(`pairing_error:${sessionId}`, onError);
             workerEvents.once(`error:${sessionId}`, onError);
         });
 
-        // NOW spawn the worker
         spawnWorker(sessionId, phone);
 
         try {
             const code = await codePromise;
-            await ctx.reply(`🔢 Your code: \`${code}\`\n\n⚡ **HURRY!**\nOpen WhatsApp → Linked Devices → Link with Phone Number.\nYou only have **20 seconds** to type this in!`, { parse_mode: "Markdown" });
+            const sentMsg = await ctx.reply(`🔢 Your code: \`${code}\`\n\n⚡ **HURRY!**\nOpen WhatsApp → Linked Devices → Link with Phone Number.\nYou only have **20 seconds** to type this in!`, { parse_mode: "Markdown" });
+
+            // 🔑 Auto-delete this message once the bot is connected
+            watchAndDeleteOnConnect(sessionId, ctx.chat.id, sentMsg.message_id);
         } catch (err: any) {
             await ctx.reply(`❌ Pairing failed:\n\n${err.message}`);
         }
