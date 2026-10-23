@@ -37,18 +37,34 @@ const supabase = createClient(
 // ── Supabase Auth State ──────────────────────────────────────────────
 async function useSupabaseAuthState(sessionId: string): Promise<{ state: AuthenticationState; saveCreds: () => Promise<void> }> {
     const readData = async (key: string) => {
-        const { data } = await supabase.from("baileys_auth").select("data").eq("id", `${sessionId}_${key}`).maybeSingle();
-        if (data && data.data) return JSON.parse(JSON.stringify(data.data), BufferJSON.reviver);
-        return null;
+        try {
+            const { data, error } = await supabase.from("baileys_auth").select("data").eq("id", `${sessionId}_${key}`).maybeSingle();
+            if (error) console.error(`[Supabase Read Error] ${key}:`, error.message);
+            if (data && data.data) return JSON.parse(JSON.stringify(data.data), BufferJSON.reviver);
+            return null;
+        } catch (e) {
+            console.error(`[Read Exception] ${key}:`, e);
+            return null;
+        }
     };
 
     const writeData = async (key: string, data: any) => {
-        const serialized = JSON.parse(JSON.stringify(data, BufferJSON.replacer));
-        await supabase.from("baileys_auth").upsert({ id: `${sessionId}_${key}`, data: serialized });
+        try {
+            const serialized = JSON.parse(JSON.stringify(data, BufferJSON.replacer));
+            const { error } = await supabase.from("baileys_auth").upsert({ id: `${sessionId}_${key}`, data: serialized });
+            if (error) console.error(`[Supabase Write Error] ${key}:`, error.message);
+        } catch (e) {
+            console.error(`[Write Exception] ${key}:`, e);
+        }
     };
 
     const removeData = async (key: string) => {
-        await supabase.from("baileys_auth").delete().eq("id", `${sessionId}_${key}`);
+        try {
+            const { error } = await supabase.from("baileys_auth").delete().eq("id", `${sessionId}_${key}`);
+            if (error) console.error(`[Supabase Delete Error] ${key}:`, error.message);
+        } catch (e) {
+            console.error(`[Delete Exception] ${key}:`, e);
+        }
     };
 
     const creds = (await readData("creds")) || initAuthCreds();
@@ -287,7 +303,6 @@ async function run() {
     sock.ev.on("connection.update", async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // 🔑 CRITICAL: Wait for the QR event to fire before requesting the pairing code!
         if (qr) {
             if (PAIRING_PHONE && !pairingRequested && !state.creds.registered) {
                 pairingRequested = true;
