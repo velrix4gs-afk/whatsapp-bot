@@ -3,12 +3,10 @@ import makeWASocket, {
     DisconnectReason,
     fetchLatestBaileysVersion,
     makeCacheableSignalKeyStore,
-    initAuthCreds,
-    BufferJSON,
+    useMultiFileAuthState,
     downloadContentFromMessage,
     toBuffer,
     jidNormalizedUser,
-    type AuthenticationState,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import fs from "fs";
@@ -25,7 +23,9 @@ const PHONE = SESSION_ID.replace(/^user_/, "");
 if (!SESSION_ID) process.exit(1);
 
 const BASE_DIR = path.join(process.cwd(), "data");
+const AUTH_DIR = path.join(BASE_DIR, "sessions", SESSION_ID, "auth");
 const MEDIA_DIR = path.join(BASE_DIR, "sessions", SESSION_ID, "media");
+fs.mkdirSync(AUTH_DIR, { recursive: true });
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
 const supabase = createClient(
@@ -33,93 +33,6 @@ const supabase = createClient(
     process.env.SUPABASE_ANON_KEY!,
     { realtime: { transport: ws as any } }
 );
-
-// ── Helper to chunk arrays (Prevents RAM spikes) ─────────────────────
-function chunkArray<T>(arr: T[], size: number): T[][] {
-    const chunks = [];
-    for (let i = 0; i < arr.length; i += size) {
-        chunks.push(arr.slice(i, i + size));
-    }
-    return chunks;
-}
-
-// ── Supabase Auth State (Chunked Writes) ─────────────────────────────
-async function useSupabaseAuthState(sessionId: string): Promise<{ state: AuthenticationState; saveCreds: () => Promise<void> }> {
-    const readData = async (key: string) => {
-        try {
-            const { data } = await supabase.from("baileys_auth").select("data").eq("id", `${sessionId}_${key}`).maybeSingle();
-            if (data && data.data) return JSON.parse(JSON.stringify(data.data), BufferJSON.reviver);
-            return null;
-        } catch { return null; }
-    };
-
-    const writeBulkChunked = async (rows: { id: string, data: any }[]) => {
-        if (rows.length === 0) return;
-
-        // 🔑 Split into chunks of 50 to prevent Render RAM crashes
-        const chunks = chunkArray(rows, 50);
-        for (const chunk of chunks) {
-            try {
-                const { error } = await supabase.from("baileys_auth").upsert(chunk);
-                if (error) console.error(`[Supabase Write Error]:`, error.message);
-                // Tiny delay to let the event loop breathe
-                await new Promise(r => setTimeout(r, 50));
-            } catch (e) {
-                console.error(`[Write Exception]:`, e);
-            }
-        }
-    };
-
-    const deleteBulk = async (ids: string[]) => {
-        if (ids.length === 0) return;
-        try {
-            const { error } = await supabase.from("baileys_auth").delete().in("id", ids);
-            if (error) console.error(`[Supabase Delete Error]:`, error.message);
-        } catch (e) {
-            console.error(`[Delete Exception]:`, e);
-        }
-    };
-
-    const creds = (await readData("creds")) || initAuthCreds();
-
-    return {
-        state: {
-            creds,
-            keys: {
-                get: async (type, ids) => {
-                    const data: any = {};
-                    await Promise.all(ids.map(async (id) => {
-                        let value = await readData(`${type}-${id}`);
-                        if (type === "app-state-sync-key" && value) {
-                            value = require("@whiskeysockets/baileys").proto.Message.AppStateSyncKeyData.fromObject(value);
-                        }
-                        data[id] = value;
-                    }));
-                    return data;
-                },
-                set: async (data) => {
-                    const upserts: { id: string, data: any }[] = [];
-                    const deletes: string[] = [];
-
-                    for (const category in data) {
-                        for (const id in data[category as keyof typeof data]) {
-                            const value = data[category as keyof typeof data]![id];
-                            const rowId = `${sessionId}_${category}-${id}`;
-                            if (value) {
-                                upserts.push({ id: rowId, data: JSON.parse(JSON.stringify(value, BufferJSON.replacer)) });
-                            } else {
-                                deletes.push(rowId);
-                            }
-                        }
-                    }
-
-                    await Promise.all([writeBulkChunked(upserts), deleteBulk(deletes)]);
-                },
-            },
-        },
-        saveCreds: () => writeBulkChunked([{ id: `${sessionId}_creds`, data: JSON.parse(JSON.stringify(creds, BufferJSON.replacer)) }]),
-    };
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────
 function ipc(msg: any) { try { if (process.send && process.connected) process.send(msg); } catch { } }
@@ -306,7 +219,8 @@ async function handleStatusReaction(msg: any) {
 
 // ── Main Run ───────────────────────────────────────────────────────────
 async function run() {
-    const { state, saveCreds } = await useSupabaseAuthState(SESSION_ID);
+    // 🔑 DIAGNOSTIC: Use local file system for auth instead of Supabase
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     const { version } = await fetchLatestBaileysVersion();
 
     sock = makeWASocket({
@@ -341,7 +255,7 @@ async function run() {
         }
 
         if (connection === "open") {
-            pairingRequested = false; // Reset flag to allow reconnects
+            pairingRequested = false;
             ipc({ type: "connected", phoneNumber: sock.user?.id?.split(":")[0] });
             log(`✅ Connected successfully`);
         }
@@ -351,8 +265,9 @@ async function run() {
             const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
             const reason = (lastDisconnect?.error as Boom)?.message || "Unknown reason";
 
+            log(`❌ Connection closed. Code: ${code}, Reason: ${reason}`);
+
             if (pairingRequested && !state.creds.registered) {
-                log(`Connection closed during pairing. Reason: ${reason}`);
                 ipc({ type: "pairing_error", error: `WhatsApp closed connection: ${reason}` });
                 return;
             }
@@ -389,12 +304,10 @@ async function run() {
             if (cmd === "autotyping off") { autoTypingEnabled = false; await sock.sendMessage(chatJid, { text: "🚫 Auto-typing OFF" }); }
             if (cmd === "save") await handleSaveStatus(msg, chatJid);
             if (cmd === "savepp") await handleSavePP(msg, chatJid, args);
-
             if (cmd === "vv") {
                 await handleVv(msg, chatJid);
                 try { await sock.sendMessage(chatJid, { delete: msg.key }); } catch { }
             }
-
             if (cmd === "sticker") await handleSticker(msg, chatJid);
 
             if (cmd === "files") await sock.sendMessage(chatJid, { text: `📁 Login at: ${process.env.PUBLIC_URL}/my-files` });
