@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "child_process";
 import path from "path";
+import fs from "fs";
 import { EventEmitter } from "events";
 
 export interface WorkerInfo {
@@ -9,8 +10,11 @@ export interface WorkerInfo {
     qrDataUrl?: string;
     pairingCode?: string;
     phoneNumber?: string | null;
+    registered: boolean;
+    error?: string;
     process: ChildProcess;
     killedByUser?: boolean;
+    loggedOut?: boolean;
     restartCount: number;
     spawnedAt: number;
 }
@@ -23,6 +27,8 @@ export interface PublicWorkerInfo {
     qrDataUrl?: string;
     pairingCode?: string;
     phoneNumber?: string | null;
+    registered: boolean;
+    error?: string;
 }
 
 export const workerEvents = new EventEmitter();
@@ -30,6 +36,77 @@ const workers = new Map<string, WorkerInfo>();
 const restartTimers = new Map<string, NodeJS.Timeout>();
 
 const WORKER_PATH = path.join(process.cwd(), "src", "worker.ts");
+const SESSIONS_DIR = path.join(process.cwd(), "data", "sessions");
+const REGISTRY_PATH = path.join(SESSIONS_DIR, "index.json");
+
+interface KnownSession { id: string; phone?: string }
+
+function readKnown(): KnownSession[] {
+    try {
+        const raw = JSON.parse(fs.readFileSync(REGISTRY_PATH, "utf8"));
+        if (!Array.isArray(raw)) return [];
+        return raw.filter((s: any) => s && typeof s.id === "string");
+    } catch { return []; }
+}
+
+function writeKnown(list: KnownSession[]): void {
+    try {
+        fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+        fs.writeFileSync(REGISTRY_PATH, JSON.stringify(list, null, 2));
+    } catch (e) {
+        console.log(`⚠️ Could not save session registry: ${e}`);
+    }
+}
+
+/** Remember every linked/attempted session so multiple users survive a restart. */
+export function rememberSession(id: string, phone?: string): void {
+    if (!id) return;
+    const list = readKnown();
+    const found = list.find((s) => s.id === id);
+    if (found) {
+        if (phone && !found.phone) { found.phone = phone; writeKnown(list); }
+        return;
+    }
+    list.push({ id, phone: phone || undefined });
+    writeKnown(list);
+}
+
+export function forgetKnownSession(id: string): void {
+    writeKnown(readKnown().filter((s) => s.id !== id));
+}
+
+export function sessionAuthDir(id: string): string {
+    return path.join(SESSIONS_DIR, id, "auth");
+}
+
+/** True when this session has credentials on disk (i.e. was linked at some point). */
+export function hasSavedCreds(id: string): boolean {
+    return fs.existsSync(path.join(sessionAuthDir(id), "creds.json"));
+}
+
+/** Remove half-written credentials so a failed pairing doesn't poison the retry. */
+export function wipeSessionAuth(id: string): void {
+    try { fs.rmSync(sessionAuthDir(id), { recursive: true, force: true }); } catch { }
+}
+
+/** Full removal of a session's local data (auth, media, memory) — used by Delete. */
+export function removeSessionData(id: string): void {
+    try { fs.rmSync(path.join(SESSIONS_DIR, id), { recursive: true, force: true }); } catch { }
+}
+
+/** Auto-launch workers for sessions that were linked before this process started. */
+export function resumeKnownSessions(): void {
+    for (const s of readKnown()) {
+        if (!fs.existsSync(path.join(sessionAuthDir(s.id), "creds.json"))) continue;
+        if (workers.has(s.id)) continue;
+        try {
+            spawnWorker(s.id, s.phone);
+            console.log(`🔁 Resuming session ${s.id}`);
+        } catch (e) {
+            console.log(`⚠️ Could not resume ${s.id}: ${e}`);
+        }
+    }
+}
 
 function isAlive(info: WorkerInfo): boolean {
     return !info.killedByUser && info.process.exitCode === null && !info.process.killed;
@@ -44,16 +121,11 @@ function isAlive(info: WorkerInfo): boolean {
  */
 export function spawnWorker(sessionId: string, phone?: string, opts: { force?: boolean } = {}): WorkerInfo {
     const existing = workers.get(sessionId);
-    if (existing && !opts.force) {
-        if (isAlive(existing) && existing.status !== "disconnected") {
-            console.log(`♻️ Worker already active for ${sessionId} (${existing.status}) — reusing`);
-            if (phone && !existing.phone) existing.phone = phone;
-            return existing;
-        }
-        killWorker(sessionId);
-    } else if (existing) {
-        killWorker(sessionId);
+    if (existing && !opts.force && isAlive(existing)) {
+        if (phone && !existing.phone) existing.phone = phone;
+        return existing;
     }
+    if (existing) killWorker(sessionId);
 
     const timer = restartTimers.get(sessionId);
     if (timer) { clearTimeout(timer); restartTimers.delete(sessionId); }
@@ -68,11 +140,13 @@ export function spawnWorker(sessionId: string, phone?: string, opts: { force?: b
         sessionId,
         phone,
         status: "starting",
+        registered: false,
         process: child,
-        restartCount: existing && opts.force ? 0 : 0,
+        restartCount: 0,
         spawnedAt: Date.now(),
     };
     workers.set(sessionId, info);
+    rememberSession(sessionId, phone);
     console.log(`🟢 Worker spawned: ${sessionId} (pid ${child.pid})`);
 
     child.on("message", (msg: any) => {
@@ -80,7 +154,10 @@ export function spawnWorker(sessionId: string, phone?: string, opts: { force?: b
         if (workers.get(sessionId) !== info) return;
 
         switch (msg.type) {
-            case "started": info.status = "connecting"; break;
+            case "started":
+                info.status = "connecting";
+                info.registered = !!msg.registered;
+                break;
             case "qr":
                 info.status = "qr";
                 info.pairingCode = undefined;
@@ -94,28 +171,36 @@ export function spawnWorker(sessionId: string, phone?: string, opts: { force?: b
                 break;
             case "pairing":
                 info.pairingCode = msg.code;
+                info.error = undefined;
                 workerEvents.emit(`pairing:${sessionId}`, msg.code);
                 break;
             case "pairing_error":
                 info.pairingCode = undefined;
+                info.error = String(msg.error || "Pairing failed — request a new code");
                 workerEvents.emit(`pairing_error:${sessionId}`, msg.error);
                 break;
             case "connected":
                 info.status = "connected";
+                info.registered = true;
+                info.error = undefined;
                 info.phoneNumber = msg.phoneNumber;
                 info.qrDataUrl = undefined;
                 info.pairingCode = undefined;
                 info.restartCount = 0;
                 workerEvents.emit(`connected:${sessionId}`, msg.phoneNumber);
                 break;
-            case "disconnected": info.status = "disconnected"; break;
+            case "disconnected":
+                info.status = "disconnected";
+                break;
             case "logged_out":
                 info.status = "disconnected";
-                info.qrDataUrl = undefined;
                 info.pairingCode = undefined;
-                info.killedByUser = true; // don't auto-restart a logged-out session
+                info.qrDataUrl = undefined;
+                info.loggedOut = true;
+                info.error = "Logged out of WhatsApp — link this number again";
                 break;
             case "error":
+                info.error = String(msg.error || "Unknown worker error");
                 workerEvents.emit(`error:${sessionId}`, msg.error);
                 break;
         }
@@ -126,12 +211,17 @@ export function spawnWorker(sessionId: string, phone?: string, opts: { force?: b
         if (info.killedByUser) { workers.delete(sessionId); return; }
 
         info.status = "disconnected";
-        if (info.pairingCode === undefined && info.phone) {
-            workerEvents.emit(`error:${sessionId}`, `Worker crashed (code ${code})`);
+        if (info.loggedOut) {
+            // Keep the card so the UI can explain what happened; a fresh link starts via Reset.
+            return;
         }
 
         info.restartCount++;
-        if (info.restartCount > 5) { workers.delete(sessionId); return; }
+        if (info.restartCount > 5) {
+            info.error = `Worker kept crashing (code ${code}) — press Restart to retry`;
+            return;
+        }
+        info.error = info.error ?? `Worker crashed (code ${code}) — restarting…`;
 
         const delay = Math.min(3000 * info.restartCount, 30000);
         const t = setTimeout(() => {
@@ -174,5 +264,7 @@ export function toPublicWorker(w: WorkerInfo): PublicWorkerInfo {
         qrDataUrl: w.qrDataUrl,
         pairingCode: w.pairingCode,
         phoneNumber: w.phoneNumber,
+        registered: w.registered,
+        error: w.error,
     };
 }

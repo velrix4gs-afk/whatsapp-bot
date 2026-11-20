@@ -34,6 +34,12 @@ const MEDIA_DIR = path.join(BASE_DIR, "sessions", SESSION_ID, "media");
 fs.mkdirSync(AUTH_DIR, { recursive: true });
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
+/** A failed pairing leaves half-written keys behind that block every retry. */
+function wipeAuthDir() {
+    try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); } catch { }
+    try { fs.mkdirSync(AUTH_DIR, { recursive: true }); } catch { }
+}
+
 let supabase: ReturnType<typeof createClient> | null = null;
 try {
     if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
@@ -624,7 +630,6 @@ async function getBaileysVersion(): Promise<any> {
 
 async function run() {
     const myGen = ++generation;
-    ipc({ type: "started" });
 
     // Tear down any previous socket so reconnects don't leak sessions/listeners.
     if (sock) {
@@ -634,7 +639,18 @@ async function run() {
         sock = null;
     }
 
-    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    let { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+
+    // Half-registered state (me written but registered=false) can never connect;
+    // clear it so the next attempt starts from a fresh QR / pairing code.
+    if (!state.creds.registered && state.creds.me) {
+        log("🧹 Clearing half-finished registration");
+        wipeAuthDir();
+        ({ state, saveCreds } = await useMultiFileAuthState(AUTH_DIR));
+    }
+
+    ipc({ type: "started", registered: state.creds.registered });
+
     const version = await getBaileysVersion();
 
     const socket = makeWASocket({
@@ -679,12 +695,32 @@ async function run() {
         if (connection === "close") {
             if (stopping || myGen !== generation) return;
             const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
-            if (code === DisconnectReason.loggedOut) {
+            const registered = state.creds.registered;
+
+            if (code === DisconnectReason.loggedOut && registered) {
+                wipeAuthDir();
                 ipc({ type: "logged_out" });
-                log("🚪 Logged out");
+                log("🚪 Logged out — credentials cleared");
                 process.exit(0);
             }
-            if (pairingRequested && !state.creds.registered) return;
+
+            if (!registered) {
+                // Pairing attempt died (expired/invalid code, QR replaced, 401…).
+                // Report the reason and start clean so the next code actually works.
+                const reason = (lastDisconnect?.error as any)?.message || `Pairing failed (${code ?? "connection closed"})`;
+                pairingRequested = false;
+                wipeAuthDir();
+                ipc({ type: "pairing_error", error: `${reason} — request a new code` });
+                log(`⚠️ ${reason} — restarting with fresh credentials`);
+                if (reconnectTimer) return;
+                reconnectTimer = setTimeout(() => {
+                    reconnectTimer = null;
+                    if (stopping) return;
+                    run().catch((e) => { log(`Reconnect failed: ${e}`); });
+                }, 3000);
+                return;
+            }
+
             if (reconnectTimer) return;
             reconnectTimer = setTimeout(() => {
                 reconnectTimer = null;

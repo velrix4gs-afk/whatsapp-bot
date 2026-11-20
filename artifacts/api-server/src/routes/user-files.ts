@@ -56,4 +56,28 @@ router.post("/user/files", async (req, res) => {
     }
 });
 
+router.post("/user/files/delete", async (req, res) => {
+    try {
+        if (!supabase) { res.status(503).json({ ok: false, error: "Storage not configured" }); return; }
+        const { phone, pin, name } = req.body || {};
+        const cleanPhone = String(phone ?? "").replace(/\D/g, "");
+        const fileName = String(name ?? "");
+        if (!cleanPhone || !pin) { res.status(400).json({ ok: false, error: "Phone and PIN required" }); return; }
+        if (!fileName || fileName.includes("/") || fileName.includes("\\") || fileName.includes("..")) {
+            res.status(400).json({ ok: false, error: "Invalid file name" });
+            return;
+        }
+
+        const pinHash = crypto.createHash("sha256").update(`${cleanPhone}:${pin}:wabot`).digest("hex");
+        const { data: user } = await supabase.from("users").select("phone").eq("phone", cleanPhone).eq("pin_hash", pinHash).maybeSingle();
+        if (!user) { res.status(401).json({ ok: false, error: "Invalid phone or PIN" }); return; }
+
+        const { error } = await supabase.storage.from("saved_media").remove([`${cleanPhone}/${fileName}`]);
+        if (error) { res.status(500).json({ ok: false, error: error.message }); return; }
+        res.json({ ok: true });
+    } catch (e: any) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 export default router;

@@ -559,15 +559,18 @@
             }
             grid.innerHTML = sessions.map(s => {
                 const pending = s.id === pendingSessionId;
+                const canReset = s.status !== 'connected';
                 return `
                 <div class="card ${pending ? 'highlight' : ''}">
                     <h3>${esc(s.label || s.id)}</h3>
                     <span class="status ${esc(s.status)}">${esc(s.status)}</span>
+                    ${s.error ? `<div class="info" style="color:#f87171;">⚠️ ${esc(s.error)}</div>` : ''}
                     ${s.phoneNumber ? `<div class="info">📱 Linked: <strong>+${esc(s.phoneNumber)}</strong></div>` : ''}
                     <div class="info">🆔 ${esc(s.id)}</div>
                     ${s.pairingCode ? `<div class="code-box"><div class="code">${esc(s.pairingCode)}</div><div class="hint">WhatsApp → Linked Devices → Link with Phone Number</div></div>` : ''}
                     ${s.qrDataUrl ? `<div class="qr-wrap"><img src="${s.qrDataUrl}" alt="QR" /></div>` : ''}
                     <div class="row" style="margin-top:12px;">
+                        ${canReset ? `<button class="btn sm" onclick="resetSession('${esc(s.id)}')">New code</button>` : ''}
                         <button class="btn secondary sm" onclick="restartSession('${esc(s.id)}')">Restart</button>
                         <button class="btn danger sm" onclick="deleteSession('${esc(s.id)}')">Delete</button>
                     </div>
@@ -601,6 +604,16 @@
         async function restartSession(id) {
             await api('/sessions/' + encodeURIComponent(id) + '/restart', { method: 'POST' });
             toast('Restarting…');
+            refreshSessions();
+        }
+
+        async function resetSession(id) {
+            const btn = document.getElementById('add-session-btn');
+            btn.disabled = true; btn.textContent = 'Getting a new code…';
+            pendingSessionId = id;
+            await api('/sessions/' + encodeURIComponent(id) + '/reset', { method: 'POST' });
+            toast('Fresh session — a new code/QR is on its way');
+            btn.disabled = false; btn.textContent = 'Get pairing code';
             refreshSessions();
         }
 

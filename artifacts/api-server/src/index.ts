@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { startHeartbeat } from "./lib/heartbeat";
 import { initSettings, loadSessionsFromDb } from "./lib/settings";
 import { startTelegramBot } from "./lib/telegram-bot";
+import { resumeKnownSessions } from "./lib/manager";
 
 // ── Crash protection: log but never die ──────────────────────────────────────
 process.on("uncaughtException", (err) => {
@@ -38,4 +39,7 @@ app.listen(port, async (err) => {
 
   startTelegramBot();
   startHeartbeat();
+
+  // Bring back every previously linked number (multi-user sessions).
+  try { resumeKnownSessions(); } catch (e) { logger.warn({ err: String(e) }, "resumeKnownSessions failed"); }
 });

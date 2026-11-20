@@ -96,6 +96,19 @@ Render can't reach `localhost`. Run freellmapi on the PC, expose it with a tunne
 http://localhost:PORT` or `ngrok http PORT`), then add a **Custom (OpenAI-compatible)** provider with the tunnel URL +
 `/v1` and the model name your app serves. No API key needed if your app has none. Same pattern works for Ollama.
 
+### Phase 7 — reliable linking, multi-session, file delete (latest)
+- A failed/expired pairing no longer deletes the session card: the worker wipes half-written
+  credentials, reports the reason (`pairing_error` → shown in the UI) and reconnects into a fresh
+  QR instead of silently dying.
+- `POST /api/sessions` always starts a fresh pairing attempt unless the session is connected, so
+  pressing "Get pairing code" again always produces a new code. New `POST /api/sessions/:id/reset`
+  (admin → "New code" button) kills the worker and removes saved credentials for a true clean slate.
+- Session list persisted to `data/sessions/index.json`; linked numbers are auto-resumed on startup,
+  so multiple users can each link their own number and keep it across restarts (needs a persistent
+  disk on Render — without one, `data/` is wiped on every deploy).
+- Delete session now removes the whole `data/sessions/<id>/` folder (auth, media, memory).
+- My Files page: Delete button + `POST /api/user/files/delete` (phone/PIN auth, path-traversal guarded).
+
 ## Ideas / not scheduled
 - Website read-only view of per-chat toggles.
 - Persona/auto-respond management inside the Telegram bot.

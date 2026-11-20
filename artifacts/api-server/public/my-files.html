@@ -181,11 +181,31 @@
           <div class="actions">
             <a href="${f.url}" target="_blank" rel="noopener">View</a>
             <a href="${f.url}" download class="secondary">⬇</a>
+            <button class="btn danger sm" type="button" data-name="${escapeHtml(f.name)}" onclick="deleteFile(this.dataset.name)">🗑</button>
           </div>
         </div>
       </div>
     `;
             }).join('');
+        }
+
+        async function deleteFile(name) {
+            if (!name) return;
+            if (!confirm('Delete "' + name + '"? This cannot be undone.')) return;
+            const phone = localStorage.getItem('phone');
+            const pin = localStorage.getItem('pin');
+            try {
+                const res = await fetch(`${API}/user/files/delete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone, pin, name }),
+                });
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error || 'Delete failed');
+                refresh();
+            } catch (e) {
+                alert(e.message);
+            }
         }
 
         function escapeHtml(s) {

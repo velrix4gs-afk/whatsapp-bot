@@ -148,7 +148,9 @@
                     showSettings(s);
                     return;
                 }
-                if (s.pairingCode) {
+                if (s.error) {
+                    statusEl.textContent = '⚠️ ' + s.error;
+                } else if (s.pairingCode) {
                     codeEl.textContent = s.pairingCode;
                     statusEl.textContent = 'Enter this code in WhatsApp now';
                 } else {
