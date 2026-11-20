@@ -18,6 +18,7 @@ import ws from "ws";
 import { loadSettings, getActiveAiProvider, getPersona, getPersonaProvider, type BotSettings } from "./lib/settings";
 import { callAiProvider, firstMatchingRule } from "./lib/ai";
 import { getChatToggles, setChatToggle } from "./lib/chat-settings";
+import { getActiveSession, startSession, appendToSession, endSession, isStopMessage } from "./lib/ai-sessions";
 import { listAutoRules, matchAutoRule } from "./lib/auto-respond";
 
 const SESSION_ID = process.env.WORKER_SESSION_ID || "";
@@ -287,25 +288,59 @@ async function handleStatusReaction(msg: any) {
 function buildMenu(chatJid: string): string {
     const t = getChatToggles(chatJid);
     const isGroup = chatJid.endsWith("@g.us");
-    return `🤖 *NovaBot Menu*
+    const on = (v: boolean) => (v ? "🟢 ON" : "🔴 OFF");
+    return `╭━━━━━━━━━━━━━━━━╮
+   🤖 *BOT MENU*
+╰━━━━━━━━━━━━━━━━╯
 
-*This chat*
-• /vv on|off — view-once auto-save: ${isGroup ? "off (personal chats only)" : t.vv ? "ON" : "OFF"}
-• /anticall on|off — reject calls here: ${t.anticall ? "ON" : "OFF"}
-• /autoreply on|off — auto AI replies here: ${t.autoreply ? "ON" : "OFF"}
+*⚙️ THIS CHAT*
+ ▸ /vv on|off — view-once save: ${isGroup ? "🚫 personal only" : on(t.vv)}
+ ▸ /anticall on|off — reject calls: ${on(t.anticall)}
+ ▸ /autoreply on|off — auto replies: ${on(t.autoreply)}
 
-*AI*
-• /ai <question> — ask the default AI
-• /ai/<name> <question> — use a saved persona
+*🧠 AI*
+ ▸ /ai <question> — ask the default AI
+ ▸ /ai/<name> <question> — use a persona
+ ▸ <name> <question> — call a persona by name
+ ▸ say "enough" — end the persona chat
 
-*Tools*
-• /vv — save the view-once you replied to
-• /save — save the status you replied to
-• /savepp [number] — save a profile picture
-• /sticker — sticker from a replied image
-• /files — saved media page
-• /ping — status
-• /admin — admin panel`;
+*🛠 TOOLS*
+ ▸ /vv — save replied view-once
+ ▸ /save — save replied status
+ ▸ /savepp [number] — save profile picture
+ ▸ /sticker — sticker from replied image
+ ▸ /files — saved media
+ ▸ /ping — bot status
+
+_Powered by NovaBot_`;
+}
+
+const CUSTOM_CMDS_FILE = path.join(process.cwd(), "data", "custom-commands.json");
+
+function findCustomCommand(text: string): { prefix: string; response: string } | null {
+    try {
+        if (!fs.existsSync(CUSTOM_CMDS_FILE)) return null;
+        const cmds = JSON.parse(fs.readFileSync(CUSTOM_CMDS_FILE, "utf8"));
+        if (!Array.isArray(cmds)) return null;
+        const t = text.trim().toLowerCase();
+        return cmds.find((c: any) =>
+            typeof c?.prefix === "string" && c.prefix.trim() &&
+            typeof c?.response === "string" && c.response &&
+            t.startsWith(c.prefix.trim().toLowerCase())
+        ) ?? null;
+    } catch { return null; }
+}
+
+/** "Nora what is utc" → { persona: nora, question: "what is utc" } */
+function matchPersonaPrefix(text: string): { persona: any; question: string } | null {
+    const t = text.trim();
+    for (const p of settings().personas ?? []) {
+        if (!p?.name) continue;
+        const esc = p.name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const m = t.match(new RegExp(`^@?${esc}\\b[\\s,:;.!?-]*(.*)$`, "i"));
+        if (m) return { persona: p, question: (m[1] || "").trim() };
+    }
+    return null;
 }
 
 // ── AI ────────────────────────────────────────────────────────────────
@@ -320,7 +355,7 @@ function isOwnerSender(msg: any): boolean {
     return !!admin && senderDigits(msg) === admin;
 }
 
-async function handleAiQuestion(chatJid: string, question: string, personaName?: string) {
+async function handleAiQuestion(chatJid: string, question: string, personaName?: string, join = false) {
     const s = settings();
     const persona = personaName ? getPersona(s, personaName) : null;
     const provider = getPersonaProvider(s, persona);
@@ -328,13 +363,55 @@ async function handleAiQuestion(chatJid: string, question: string, personaName?:
         await sock.sendMessage(chatJid, { text: "⚠️ No AI provider configured. Add one in the admin panel." });
         return;
     }
-    const systemPrompt = persona?.instructions || s.aiSystemPrompt;
+    const base = persona?.instructions || s.aiSystemPrompt;
+    const systemPrompt = join
+        ? `${base}\n\nYou have just joined a WhatsApp conversation. Reply briefly and naturally. The user will say "enough" or "stop" when they want you to leave.`
+        : base;
+    if (join && persona) startSession(chatJid, persona.name);
     try {
         await sock.sendPresenceUpdate("composing", chatJid).catch(() => { });
-        const reply = await callAiProvider(provider, question, systemPrompt);
+        const existing = join ? null : getActiveSession(chatJid);
+        const history = existing && persona &&
+            existing.persona.trim().toLowerCase() === persona.name.trim().toLowerCase()
+            ? existing.history : [];
+        const reply = await callAiProvider(provider, question, systemPrompt, history);
         await sock.sendMessage(chatJid, { text: reply || "🤖 (empty response)" });
+        if (join) {
+            appendToSession(chatJid, { role: "user", content: question });
+            appendToSession(chatJid, { role: "assistant", content: reply });
+        }
     } catch (e) {
         await sock.sendMessage(chatJid, { text: `❌ AI error: ${e instanceof Error ? e.message : String(e)}` });
+    }
+}
+
+/** Reply inside an ongoing persona conversation (started by calling the persona's name). */
+async function handleSessionReply(chatJid: string, text: string, msg: any): Promise<boolean> {
+    const active = getActiveSession(chatJid);
+    if (!active) return false;
+    const s = settings();
+    const persona = getPersona(s, active.persona);
+    const provider = getPersonaProvider(s, persona);
+    if (!provider) {
+        endSession(chatJid);
+        await sock.sendMessage(chatJid, { text: `⚠️ ${active.persona} left — no AI provider configured.` });
+        return true;
+    }
+    const base = persona?.instructions || s.aiSystemPrompt;
+    const systemPrompt = `${base}\n\nYou are in an ongoing WhatsApp conversation. Reply naturally and briefly. The user will say "enough" or "stop" when they want you to leave.`;
+    const history = active.history.slice();
+    appendToSession(chatJid, { role: "user", content: text });
+    try {
+        await sock.sendPresenceUpdate("composing", chatJid).catch(() => { });
+        const reply = await callAiProvider(provider, text, systemPrompt, history);
+        if (reply) {
+            await sock.sendMessage(chatJid, { text: reply }, { quoted: msg });
+            appendToSession(chatJid, { role: "assistant", content: reply });
+        }
+        return true;
+    } catch (e) {
+        log(`AI session error: ${e instanceof Error ? e.message : String(e)}`);
+        return true;
     }
 }
 
@@ -548,7 +625,6 @@ async function run() {
             if (cmd === "ping") { handled = true; await socket.sendMessage(chatJid, { text: "🏓 Pong!" }); }
             if (cmd === "menu" || cmd === "help") { handled = true; await socket.sendMessage(chatJid, { text: buildMenu(chatJid) }); }
             if (cmd === "files") { handled = true; await socket.sendMessage(chatJid, { text: `📁 View all files: ${process.env.PUBLIC_URL}/my-files` }); }
-            if (cmd === "admin") { handled = true; await socket.sendMessage(chatJid, { text: `⚙️ Admin panel: ${process.env.PUBLIC_URL}/admin` }); }
             if (cmd === "ai" || cmd.startsWith("ai/")) {
                 handled = true;
                 const question = args.join(" ").trim();
@@ -558,6 +634,46 @@ async function run() {
                     await socket.sendMessage(chatJid, { text: "🔒 AI is limited to the admin in this mode." });
                 } else {
                     await handleAiQuestion(chatJid, question, cmd.startsWith("ai/") ? cmd.slice(3) : undefined);
+                }
+            }
+            // Persona by name: "Nora what is utc" / "nora, are you there"
+            if (!handled && text.trim()) {
+                const pm = matchPersonaPrefix(text);
+                if (pm) {
+                    handled = true;
+                    if (!owner && settings().features.replyMode === "only") {
+                        await socket.sendMessage(chatJid, { text: "🔒 AI is limited to the admin in this mode." });
+                    } else if (!pm.question) {
+                        startSession(chatJid, pm.persona.name);
+                        await socket.sendMessage(chatJid, { text: `🤖 ${pm.persona.name} has joined the chat — ask away. Say "enough" when you're done.` });
+                    } else {
+                        await handleAiQuestion(chatJid, pm.question, pm.persona.name, true);
+                    }
+                }
+            }
+            // Ongoing persona conversation — reply until the user says enough/stop
+            if (!handled && text.trim()) {
+                const active = getActiveSession(chatJid);
+                if (active) {
+                    handled = true;
+                    if (isStopMessage(text, active.persona)) {
+                        endSession(chatJid);
+                        await socket.sendMessage(chatJid, { text: `👋 ${active.persona} has left the conversation.` });
+                    } else {
+                        await handleSessionReply(chatJid, text, msg);
+                    }
+                }
+            }
+            // Custom commands (data/custom-commands.json)
+            if (!handled && text.trim()) {
+                const cc = findCustomCommand(text);
+                if (cc) {
+                    handled = true;
+                    await socket.sendMessage(chatJid, {
+                        text: cc.response
+                            .replace(/\{time\}/g, new Date().toUTCString())
+                            .replace(/\{name\}/g, msg.pushName || "there"),
+                    });
                 }
             }
             if (norm === "autotyping on" || norm === "autotyping off") {

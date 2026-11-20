@@ -5,114 +5,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WhatsApp Bot Admin</title>
+    <link rel="stylesheet" href="/styles.css" />
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        :root {
-            --bg: #0f1117; --panel: #1a1d26; --panel2: #14161e; --border: #252933;
-            --text: #e6e6e6; --muted: #8b93a7; --green: #00ff88; --green2: #00cc6a;
-            --red: #ff4757; --yellow: #ffcc00; --blue: #3b82f6;
-        }
-        body {
-            background: var(--bg); color: var(--text); min-height: 100vh;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            padding: 20px;
-        }
-        a { color: var(--green); }
-        .wrap { max-width: 1100px; margin: 0 auto; }
-
-        header {
-            display: flex; justify-content: space-between; align-items: center;
-            flex-wrap: wrap; gap: 12px; margin-bottom: 20px;
-        }
-        h1 { font-size: 22px; color: var(--green); }
-        .muted { color: var(--muted); font-size: 12px; margin-top: 4px; }
-
-        .btn {
-            background: var(--green); color: #0f1117; border: none; padding: 10px 16px;
-            border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: .15s;
-        }
-        .btn:hover { background: var(--green2); }
-        .btn:disabled { opacity: .5; cursor: not-allowed; }
-        .btn.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
-        .btn.secondary:hover { background: var(--panel2); border-color: #3a3f4d; }
-        .btn.danger { background: var(--red); color: #fff; }
-        .btn.danger:hover { background: #d63447; }
-        .btn.sm { padding: 7px 12px; font-size: 12px; }
-
-        .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
-        .tab {
-            background: none; border: none; color: var(--muted); padding: 10px 16px;
-            cursor: pointer; font-size: 14px; font-weight: 600; border-bottom: 2px solid transparent;
-        }
-        .tab.active { color: var(--green); border-bottom-color: var(--green); }
-
-        .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
-        .panel h2 { font-size: 16px; margin-bottom: 14px; }
-        .panel h2 .sub { color: var(--muted); font-weight: 400; font-size: 12px; }
-
-        .field { margin-bottom: 14px; }
-        label.lbl { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-        input, select, textarea {
-            width: 100%; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
-            padding: 11px 12px; border-radius: 8px; font-size: 14px; outline: none; font-family: inherit;
-        }
-        input:focus, select:focus, textarea:focus { border-color: var(--green); }
-        textarea { resize: vertical; }
-
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
-        .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
-        .card.highlight { border-color: var(--green); box-shadow: 0 0 0 1px var(--green) inset; }
-        .card h3 { font-size: 15px; margin-bottom: 8px; word-break: break-word; }
-        .status { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
-        .status.connected { background: #00ff8822; color: var(--green); }
-        .status.qr, .status.connecting, .status.starting { background: #ffcc0022; color: var(--yellow); }
-        .status.disconnected { background: #ff475722; color: var(--red); }
-        .info { font-size: 13px; color: var(--muted); margin: 4px 0; }
-        .info strong { color: var(--text); }
-
-        .code-box { background: var(--panel2); border: 2px solid var(--green); border-radius: 10px; padding: 14px; text-align: center; margin: 12px 0; }
-        .code-box .code { font-size: 26px; font-weight: 800; letter-spacing: 4px; color: var(--green); font-family: monospace; }
-        .code-box .hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
-        .qr-wrap { background: #fff; border-radius: 10px; padding: 10px; text-align: center; margin: 12px 0; }
-        .qr-wrap img { width: 100%; max-width: 220px; height: auto; }
-
-        .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-        .spacer { flex: 1; }
-
-        .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
-        .toggle-row:last-child { border-bottom: none; }
-        .switch { position: relative; width: 44px; height: 24px; background: var(--border); border-radius: 12px; cursor: pointer; transition: .15s; flex: none; }
-        .switch.on { background: var(--green); }
-        .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: #fff; border-radius: 50%; transition: .15s; }
-        .switch.on::after { left: 22px; }
-
-        .list-item { display: flex; gap: 12px; align-items: center; padding: 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; background: var(--panel2); }
-        .list-item .grow { flex: 1; min-width: 0; }
-        .list-item .title { font-size: 14px; font-weight: 600; word-break: break-word; }
-        .list-item .desc { font-size: 12px; color: var(--muted); margin-top: 3px; word-break: break-word; }
-        .badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; background: #00ff8822; color: var(--green); font-weight: 700; text-transform: uppercase; }
-
-        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.75); display: none; justify-content: center; align-items: center; z-index: 1000; padding: 20px; }
-        .modal-overlay.active { display: flex; }
-        .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 24px; width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; }
-        .modal h2 { font-size: 18px; margin-bottom: 16px; color: var(--green); }
-
-        .auth-card { max-width: 400px; margin: 8vh auto 0; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 30px; }
-        .auth-card h1 { font-size: 22px; margin-bottom: 6px; }
-
-        .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); background: var(--green); color: #0f1117; padding: 12px 20px; border-radius: 10px; font-weight: 700; font-size: 14px; opacity: 0; pointer-events: none; transition: .25s; z-index: 2000; }
-        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-        .toast.err { background: var(--red); color: #fff; }
-        .hidden { display: none !important; }
-        .error-text { color: var(--red); font-size: 13px; margin-top: 10px; }
-        .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
+        .side-link .badge-dot { margin-left: auto; }
     </style>
 </head>
 
 <body>
     <div id="auth-view" class="hidden">
         <div class="auth-card">
-            <h1>🤖 WhatsApp Bot</h1>
+            <div class="brand" style="margin-bottom:18px;">
+                <span class="logo">🤖</span>
+                <span>NovaBot Admin</span>
+            </div>
+            <h1>Sign in</h1>
             <p class="muted" id="auth-sub">Sign in to manage your bot.</p>
 
             <div class="field" style="margin-top:18px;">
@@ -128,29 +34,48 @@
                 <button class="btn secondary" id="register-btn" onclick="doRegister()">Create account</button>
             </div>
             <div class="error-text" id="auth-error"></div>
+            <p class="muted" style="margin-top:18px;font-size:12.5px;">
+                Not an admin? <a href="/">Link your WhatsApp</a> · <a href="/login">User login</a> · <a href="/my-files">My files</a>
+            </p>
         </div>
     </div>
 
-    <div id="app-view" class="wrap hidden">
-        <header>
-            <div>
-                <h1>🤖 WhatsApp Bot Admin</h1>
-                <div class="muted" id="whoami">—</div>
+    <div id="app-view" class="shell hidden">
+        <aside class="sidebar">
+            <div class="brand">
+                <span class="logo">🤖</span>
+                <span>NovaBot Admin</span>
             </div>
-            <div class="row">
-                <span class="muted" id="bot-status">—</span>
-                <button class="btn secondary sm" onclick="logout()">Log out</button>
+
+            <div class="group-label">Manage</div>
+            <nav class="side-nav">
+                <button class="side-link active" data-tab="sessions" onclick="switchTab('sessions')"><span class="icon">📱</span> Sessions</button>
+                <button class="side-link" data-tab="ai" onclick="switchTab('ai')"><span class="icon">🧠</span> AI &amp; Personas</button>
+                <button class="side-link" data-tab="autorespond" onclick="switchTab('autorespond')"><span class="icon">💬</span> Auto-respond</button>
+                <button class="side-link" data-tab="settings" onclick="switchTab('settings')"><span class="icon">⚙️</span> Settings</button>
+                <button class="side-link" data-tab="files" onclick="switchTab('files')"><span class="icon">📁</span> Files</button>
+            </nav>
+
+            <div class="foot">
+                <div class="status-line"><span class="dot" id="status-dot"></span><span id="bot-status">—</span></div>
+                <a class="btn secondary sm block" href="/">🔗 Link page</a>
+                <a class="btn secondary sm block" href="/my-files">📁 My Files</a>
+                <button class="btn ghost sm block" onclick="logout()">Log out</button>
             </div>
-        </header>
+        </aside>
 
-        <div class="tabs">
-            <button class="tab active" data-tab="sessions" onclick="switchTab('sessions')">📱 Sessions</button>
-            <button class="tab" data-tab="ai" onclick="switchTab('ai')">🧠 AI</button>
-            <button class="tab" data-tab="autorespond" onclick="switchTab('autorespond')">💬 Auto-respond</button>
-            <button class="tab" data-tab="settings" onclick="switchTab('settings')">⚙️ Settings</button>
-            <button class="tab" data-tab="files" onclick="switchTab('files')">📁 Files</button>
-        </div>
+        <main class="main">
+            <div class="topbar">
+                <div>
+                    <h1 id="page-title">Sessions</h1>
+                    <div class="muted" id="whoami">—</div>
+                </div>
+                <div class="row">
+                    <span class="muted" id="topbar-hint">Manage linked numbers, AI and bot behaviour</span>
+                </div>
+            </div>
 
+            <div class="content">
         <!-- SESSIONS -->
         <section id="tab-sessions">
             <div class="panel">
@@ -199,7 +124,7 @@
 
             <div class="panel">
                 <div class="row">
-                    <h2 style="margin:0;">AI personas <span class="sub">— use in chat as /ai/&lt;name&gt; your question</span></h2>
+                    <h2 style="margin:0;">AI personas <span class="sub">— call them by name in chat: "nora what is utc"</span></h2>
                     <div class="spacer"></div>
                     <button class="btn" onclick="openPersonaModal()">+ Add persona</button>
                 </div>
@@ -245,6 +170,15 @@
                 <h2>Features</h2>
                 <div id="features-list"></div>
             </div>
+
+            <div class="panel">
+                <div class="row">
+                    <h2 style="margin:0;">Custom commands <span class="sub">— type the prefix in any chat to get the reply</span></h2>
+                    <div class="spacer"></div>
+                    <button class="btn" onclick="openCcModal()">+ Add command</button>
+                </div>
+                <div id="cc-list" style="margin-top:14px;"></div>
+            </div>
         </section>
 
         <!-- FILES -->
@@ -257,6 +191,8 @@
                 <p style="margin-top:14px;"><a href="/my-files" target="_blank">Open my-files →</a></p>
             </div>
         </section>
+            </div>
+        </main>
     </div>
 
     <!-- Provider modal -->
@@ -335,7 +271,7 @@
         <div class="modal">
             <h2 id="persona-modal-title">Add persona</h2>
             <div class="field">
-                <label class="lbl">Name <span class="muted">(used in chat as /ai/name)</span></label>
+                <label class="lbl">Name <span class="muted">(type this name in chat to call the persona, e.g. "nora")</span></label>
                 <input type="text" id="ps-name" placeholder="e.g. nora" />
             </div>
             <div class="field">
@@ -350,6 +286,30 @@
             <div class="row" style="justify-content:flex-end;margin-top:8px;">
                 <button class="btn secondary" onclick="closeModal('persona-modal')">Cancel</button>
                 <button class="btn" onclick="savePersona()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom command modal -->
+    <div class="modal-overlay" id="cc-modal">
+        <div class="modal">
+            <h2 id="cc-modal-title">Add custom command</h2>
+            <div class="field">
+                <label class="lbl">Trigger <span class="muted">(starts the message, e.g. .price or !rules)</span></label>
+                <input type="text" id="cc-prefix" placeholder=".price" />
+            </div>
+            <div class="field">
+                <label class="lbl">Description</label>
+                <input type="text" id="cc-desc" placeholder="Prices list" />
+            </div>
+            <div class="field">
+                <label class="lbl">Reply <span class="muted">({time} = current UTC time, {name} = sender name)</span></label>
+                <textarea id="cc-response" rows="3" placeholder="Type your reply text here..."></textarea>
+            </div>
+            <input type="hidden" id="cc-index" />
+            <div class="row" style="justify-content:flex-end;margin-top:8px;">
+                <button class="btn secondary" onclick="closeModal('cc-modal')">Cancel</button>
+                <button class="btn" onclick="saveCustomCommand()">Save</button>
             </div>
         </div>
     </div>
@@ -393,6 +353,7 @@
         let token = localStorage.getItem('wabot_token') || '';
         let settings = null;
         let autoRules = [];
+        let customCommands = [];
         let pendingSessionId = null;
         let pollTimer = null;
         let me = null;
@@ -488,15 +449,29 @@
             renderFeatures();
             refreshSessions();
             loadAutoRules();
+            loadCustomCommands();
             if (pollTimer) clearInterval(pollTimer);
             pollTimer = setInterval(refreshSessions, 2500);
         }
 
+        const TAB_TITLES = {
+            sessions: ['📱 Sessions', 'Link and monitor WhatsApp numbers'],
+            ai: ['🧠 AI & Personas', 'Providers, rules and personas used in chat'],
+            autorespond: ['💬 Auto-respond', 'Per-contact replies and AI instructions'],
+            settings: ['⚙️ Settings', 'Bot behaviour, features and custom commands'],
+            files: ['📁 Files', 'Media saved from WhatsApp'],
+        };
+
         function switchTab(name) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+            document.querySelectorAll('.side-link').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
             ['sessions', 'ai', 'autorespond', 'settings', 'files'].forEach(n => {
                 document.getElementById('tab-' + n).classList.toggle('hidden', n !== name);
             });
+            const meta = TAB_TITLES[name];
+            if (meta) {
+                document.getElementById('page-title').textContent = meta[0];
+                document.getElementById('topbar-hint').textContent = meta[1];
+            }
         }
 
         // ── sessions ─────────────────────────────────────────────
@@ -507,6 +482,10 @@
             renderSessions(sessions);
             const connected = sessions.filter(s => s.status === 'connected').length;
             document.getElementById('bot-status').textContent = `${connected}/${sessions.length} connected`;
+            const dot = document.getElementById('status-dot');
+            if (dot) {
+                dot.className = 'dot ' + (connected > 0 ? 'on' : sessions.length ? 'warn' : 'off');
+            }
             if (pendingSessionId) {
                 const p = sessions.find(s => s.id === pendingSessionId);
                 if (p && p.status === 'connected') {
@@ -715,14 +694,14 @@
         function renderPersonas() {
             const list = document.getElementById('personas-list');
             const ps = settings.personas || [];
-            if (!ps.length) { list.innerHTML = '<div class="empty">No personas yet. Add one, then type /ai/name your question in WhatsApp.</div>'; return; }
+            if (!ps.length) { list.innerHTML = '<div class="empty">No personas yet. Add one, then type its name in WhatsApp (e.g. "nora what is utc").</div>'; return; }
             list.innerHTML = ps.map(p => {
                 const prov = (settings.aiProviders || []).find(x => x.id === p.providerId);
                 const short = (p.instructions || '').slice(0, 110) + ((p.instructions || '').length > 110 ? '…' : '');
                 return `<div class="list-item">
                     <div class="grow">
-                        <div class="title">/ai/${esc(p.name)}</div>
-                        <div class="desc">${esc(short)} · ${prov ? esc(prov.label || prov.provider) : 'default provider'}</div>
+                        <div class="title">${esc(p.name)} <span class="badge">persona</span></div>
+                        <div class="desc">${esc(short)} · ${prov ? esc(prov.label || prov.provider) : 'default provider'} · chat: "${esc(p.name)} …"</div>
                     </div>
                     <button class="btn secondary sm" onclick="openPersonaModal('${esc(p.id)}')">Edit</button>
                     <button class="btn danger sm" onclick="deletePersona('${esc(p.id)}')">Delete</button>
@@ -828,37 +807,120 @@
             toast('Rule deleted');
         }
 
-        // ── general / features ───────────────────────────────────
-        const FEATURE_LABELS = {
-            viewOnce: '📸 Auto-save view-once media',
-            aiChat: '🤖 AI chat replies',
-            autoReact: '❤️ Auto-react to statuses',
-            autoPresence: '✍️ Show typing / stay online',
-            antiDelete: '🗑️ Anti-delete (save deleted messages)',
-            saveStatus: '📊 Save statuses',
-            savePP: '🖼️ Save profile pictures',
-            saveProfile: '👤 Save profiles',
-            antiDownload: '⬇️ Auto-download status',
-            antiLink: '🚫 Anti-link (remove links)',
-            welcomeGoodbye: '👋 Welcome / goodbye messages',
-            customCommands: '⌨️ Custom commands',
-        };
+        // ── custom commands ──────────────────────────────────────
+        async function loadCustomCommands() {
+            const r = await api('/settings/custom-commands');
+            if (r.status === 401) return;
+            customCommands = r.data?.commands || [];
+            renderCustomCommands();
+        }
 
+        function renderCustomCommands() {
+            const list = document.getElementById('cc-list');
+            if (!list) return;
+            if (!customCommands.length) { list.innerHTML = '<div class="empty">No custom commands yet.</div>'; return; }
+            list.innerHTML = customCommands.map((c, i) => `<div class="list-item">
+                <div class="grow">
+                    <div class="title"><code>${esc(c.prefix)}</code>${c.description ? ' — ' + esc(c.description) : ''}</div>
+                    <div class="desc">${esc((c.response || '').slice(0, 120))}</div>
+                </div>
+                <button class="btn secondary sm" onclick="openCcModal(${i})">Edit</button>
+                <button class="btn danger sm" onclick="deleteCustomCommand(${i})">Delete</button>
+            </div>`).join('');
+        }
+
+        function openCcModal(index) {
+            const c = typeof index === 'number' ? customCommands[index] : null;
+            document.getElementById('cc-modal-title').textContent = c ? 'Edit custom command' : 'Add custom command';
+            document.getElementById('cc-prefix').value = c?.prefix || '';
+            document.getElementById('cc-desc').value = c?.description || '';
+            document.getElementById('cc-response').value = c?.response || '';
+            document.getElementById('cc-index').value = typeof index === 'number' ? index : '';
+            openModal('cc-modal');
+        }
+
+        async function saveCustomCommand() {
+            const prefix = document.getElementById('cc-prefix').value.trim();
+            const response = document.getElementById('cc-response').value.trim();
+            if (!prefix) return toast('Trigger is required', true);
+            if (!response) return toast('Reply is required', true);
+            const idx = document.getElementById('cc-index').value;
+            const entry = { prefix, description: document.getElementById('cc-desc').value.trim(), response };
+            const next = customCommands.slice();
+            if (idx !== '') next[Number(idx)] = entry; else next.push(entry);
+            if (await saveCustomCommands(next)) { closeModal('cc-modal'); toast('Command saved'); }
+        }
+
+        async function deleteCustomCommand(index) {
+            if (!confirm('Delete this command?')) return;
+            const next = customCommands.filter((_, i) => i !== index);
+            if (await saveCustomCommands(next)) toast('Command deleted');
+        }
+
+        async function saveCustomCommands(next) {
+            const r = await api('/settings/custom-commands', { method: 'POST', body: JSON.stringify({ commands: next }) });
+            if (!r.data?.ok) { toast(r.data?.error || 'Save failed', true); return false; }
+            customCommands = next;
+            renderCustomCommands();
+            return true;
+        }
+
+        // ── general / features ───────────────────────────────────
         function renderGeneral() {
             document.getElementById('admin-number').value = settings.adminNumber || '';
             document.getElementById('reply-mode').value = settings.features?.replyMode || 'only';
         }
 
+        const FEATURE_GROUPS = [
+            {
+                title: 'Media & downloads',
+                hint: 'What the bot saves from WhatsApp',
+                keys: {
+                    viewOnce: '📸 Auto-save view-once media',
+                    saveStatus: '📊 Save statuses',
+                    autoDownloadStatus: '⬇️ Auto-download statuses',
+                    savePP: '🖼️ Save profile pictures',
+                    saveProfile: '👤 Save profiles',
+                    antiDelete: '🗑️ Anti-delete (save deleted messages)',
+                },
+            },
+            {
+                title: 'Engagement',
+                hint: 'How the bot reacts in chats',
+                keys: {
+                    autoReact: '❤️ Auto-react to statuses',
+                    welcomeGoodbye: '👋 Welcome / goodbye messages',
+                    customCommands: '⌨️ Custom commands',
+                    autoPresence: '✍️ Show typing / stay online',
+                },
+            },
+            {
+                title: 'Safety & AI',
+                hint: 'Moderation and smart replies',
+                keys: {
+                    aiChat: '🤖 AI chat replies',
+                    antiLink: '🚫 Anti-link (remove links)',
+                },
+            },
+        ];
+
         function renderFeatures() {
             const list = document.getElementById('features-list');
             const feats = settings.features || {};
-            list.innerHTML = Object.keys(FEATURE_LABELS).map(key => {
-                const on = !!feats[key];
-                return `<div class="toggle-row">
-                    <span>${esc(FEATURE_LABELS[key])}</span>
-                    <div class="switch ${on ? 'on' : ''}" data-feature="${key}" onclick="toggleFeature(this)"></div>
-                </div>`;
-            }).join('');
+            list.innerHTML = FEATURE_GROUPS.map(group => `
+                <div class="feature-group">
+                    <div class="feature-group-head">
+                        <h3>${esc(group.title)}</h3>
+                        <span class="muted">${esc(group.hint)}</span>
+                    </div>
+                    ${Object.keys(group.keys).map(key => {
+                        const on = !!feats[key];
+                        return `<div class="toggle-row">
+                            <span>${esc(group.keys[key])}</span>
+                            <div class="switch ${on ? 'on' : ''}" data-feature="${key}" onclick="toggleFeature(this)"></div>
+                        </div>`;
+                    }).join('')}
+                </div>`).join('');
         }
 
         async function toggleFeature(el) {

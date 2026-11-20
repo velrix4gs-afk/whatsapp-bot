@@ -4,289 +4,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Files – WhatsApp Bot</title>
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            background: #0f1117;
-            color: #e6e6e6;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 1100px;
-            margin: 0 auto;
-        }
-
-        /* Login */
-        .login-box {
-            background: #1a1d26;
-            border: 1px solid #252933;
-            border-radius: 16px;
-            padding: 40px 30px;
-            max-width: 420px;
-            margin: 80px auto;
-        }
-
-        .login-box h1 {
-            color: #00ff88;
-            font-size: 22px;
-            margin-bottom: 6px;
-        }
-
-        .login-box .sub {
-            color: #888;
-            font-size: 14px;
-            margin-bottom: 24px;
-        }
-
-        label {
-            display: block;
-            font-size: 13px;
-            color: #888;
-            margin-bottom: 6px;
-            margin-top: 16px;
-        }
-
-        input {
-            width: 100%;
-            background: #0f1117;
-            border: 1px solid #252933;
-            color: #e6e6e6;
-            padding: 14px;
-            border-radius: 10px;
-            font-size: 15px;
-            outline: none;
-        }
-
-        input:focus {
-            border-color: #00ff88;
-        }
-
-        .btn {
-            width: 100%;
-            background: #00ff88;
-            color: #0f1117;
-            border: none;
-            padding: 14px;
-            border-radius: 10px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            margin-top: 24px;
-        }
-
-        .btn:hover {
-            background: #00cc6a;
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .error {
-            background: #ff475722;
-            border: 1px solid #ff4757;
-            color: #ff8888;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 13px;
-            margin-top: 16px;
-            display: none;
-        }
-
-        /* Header */
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-
-        h1 {
-            color: #00ff88;
-            font-size: 22px;
-        }
-
-        .phone-display {
-            color: #888;
-            font-size: 13px;
-            margin-top: 4px;
-        }
-
-        .btn-sm {
-            background: transparent;
-            color: #e6e6e6;
-            border: 1px solid #333;
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-size: 13px;
-            cursor: pointer;
-        }
-
-        .btn-sm:hover {
-            background: #1a1d26;
-            border-color: #555;
-        }
-
-        /* Grid */
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 16px;
-            margin-top: 20px;
-        }
-
-        .file-card {
-            background: #1a1d26;
-            border: 1px solid #252933;
-            border-radius: 12px;
-            overflow: hidden;
-            transition: 0.2s;
-        }
-
-        .file-card:hover {
-            border-color: #00ff88;
-        }
-
-        .file-card .preview {
-            background: #0a0c10;
-            height: 180px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-        }
-
-        .file-card .preview img,
-        .file-card .preview video {
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: cover;
-        }
-
-        .file-card .preview .icon {
-            font-size: 48px;
-            color: #444;
-        }
-
-        .file-card .info {
-            padding: 12px;
-        }
-
-        .file-card .name {
-            font-size: 12px;
-            word-break: break-all;
-            color: #ccc;
-            margin-bottom: 8px;
-            line-height: 1.4;
-        }
-
-        .file-card .meta {
-            font-size: 11px;
-            color: #666;
-            margin-bottom: 10px;
-        }
-
-        .file-card .actions {
-            display: flex;
-            gap: 6px;
-        }
-
-        .file-card .actions a {
-            flex: 1;
-            text-align: center;
-            background: #00ff88;
-            color: #0f1117;
-            padding: 6px;
-            border-radius: 6px;
-            font-size: 11px;
-            font-weight: 600;
-            text-decoration: none;
-        }
-
-        .file-card .actions a:hover {
-            background: #00cc6a;
-        }
-
-        .file-card .actions a.secondary {
-            background: transparent;
-            color: #aaa;
-            border: 1px solid #333;
-        }
-
-        .file-card .actions a.secondary:hover {
-            color: #fff;
-            border-color: #666;
-        }
-
-        .empty {
-            text-align: center;
-            padding: 60px 20px;
-            color: #555;
-            grid-column: 1/-1;
-        }
-
-        .empty h2 {
-            font-size: 18px;
-            margin-bottom: 8px;
-            color: #666;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 60px;
-            color: #666;
-            grid-column: 1/-1;
-        }
-    </style>
+    <title>My Files – NovaBot</title>
+    <link rel="stylesheet" href="/styles.css" />
 </head>
 
 <body>
 
-    <div class="container">
+    <header class="site-header">
+        <div class="inner">
+            <a class="brand" href="/">
+                <span class="logo">🤖</span>
+                <span>NovaBot</span>
+            </a>
+            <nav class="site-nav">
+                <a href="/">🔗 Link</a>
+                <a href="/user">💬 My Chats</a>
+                <a href="/my-files" class="active">📁 My Files</a>
+                <a href="/login">🔑 Login</a>
+                <a href="/admin">⚙️ Admin</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="page">
 
         <!-- Login view -->
-        <div class="login-box" id="login-view">
-            <h1>📁 My Files</h1>
-            <p class="sub">Login with your WhatsApp number and PIN</p>
+        <section id="login-view" class="page narrow" style="margin:0 auto;">
+            <div class="panel">
+                <div class="page-head">
+                    <h1>📁 My Files</h1>
+                    <p class="muted">Login with your WhatsApp number and PIN</p>
+                </div>
 
-            <label>Phone number (with country code)</label>
-            <input type="tel" id="phone" placeholder="e.g., 2348103077073" />
-
-            <label>4-digit PIN</label>
-            <input type="password" id="pin" maxlength="4" inputmode="numeric" placeholder="••••" />
-
-            <button class="btn" id="login-btn" onclick="login()">Login</button>
-            <div class="error" id="login-error"></div>
-        </div>
+                <div class="field">
+                    <label class="lbl">Phone number (with country code)</label>
+                    <input type="tel" id="phone" placeholder="e.g., 2348103077073" />
+                </div>
+                <div class="field">
+                    <label class="lbl">4-digit PIN</label>
+                    <input type="password" id="pin" maxlength="4" inputmode="numeric" placeholder="••••" />
+                </div>
+                <button class="btn block" id="login-btn" onclick="login()">Login</button>
+                <div class="error" id="login-error" style="display:none;"></div>
+            </div>
+        </section>
 
         <!-- Files view -->
-        <div id="files-view" style="display:none;">
-            <header>
-                <div>
-                    <h1>📁 My Saved Files</h1>
-                    <div class="phone-display" id="phone-display"></div>
-                </div>
-                <div>
-                    <button class="btn-sm" onclick="refresh()">🔄 Refresh</button>
-                    <button class="btn-sm" onclick="logout()">Logout</button>
-                </div>
-            </header>
+        <section id="files-view" style="display:none;">
+            <div class="page-head">
+                <h1>📁 My Saved Files</h1>
+                <p class="muted" id="phone-display"></p>
+            </div>
 
-            <div class="grid" id="files-grid"></div>
-        </div>
-    </div>
+            <div class="row" style="margin-bottom:4px;">
+                <button class="btn secondary sm" onclick="refresh()">🔄 Refresh</button>
+                <button class="btn ghost sm" onclick="logout()">Logout</button>
+            </div>
+
+            <div class="file-grid" id="files-grid"></div>
+        </section>
+    </main>
 
     <script>
         const API = '/api';
@@ -351,7 +128,7 @@
             if (!phone || !pin) return logout();
 
             const grid = document.getElementById('files-grid');
-            grid.innerHTML = '<div class="loading">Loading...</div>';
+            grid.innerHTML = '<div class="loading">Loading…</div>';
 
             try {
                 const res = await fetch(`${API}/user/files`, {
@@ -363,7 +140,7 @@
                 if (!data.ok) throw new Error(data.error);
                 renderFiles(data.files);
             } catch (e) {
-                grid.innerHTML = `<div class="empty"><h2>Error</h2><p>${e.message}</p></div>`;
+                grid.innerHTML = `<div class="empty"><h2>Error</h2><p>${escapeHtml(e.message)}</p></div>`;
             }
         }
 
@@ -383,13 +160,14 @@
             }
 
             grid.innerHTML = files.map(f => {
+                const type = f.type || 'file';
                 let preview = '<div class="icon">📄</div>';
-                if (f.type === 'image') {
-                    preview = `<img src="${f.url}" loading="lazy" alt="${f.name}" />`;
-                } else if (f.type === 'video') {
+                if (type === 'image') {
+                    preview = `<img src="${f.url}" loading="lazy" alt="${escapeHtml(f.name)}" onerror="this.parentElement.innerHTML='<div class=\\'icon\\'>🖼️</div>'" />`;
+                } else if (type === 'video') {
                     preview = `<video src="${f.url}" muted preload="metadata"></video>`;
-                } else if (f.type === 'audio') {
-                    preview = '<div class="icon">🎵</div>';
+                } else if (type === 'audio') {
+                    preview = `<audio controls preload="none" src="${f.url}"></audio>`;
                 }
 
                 const name = f.name.length > 30 ? f.name.slice(0, 27) + '...' : f.name;
@@ -398,7 +176,7 @@
       <div class="file-card">
         <div class="preview">${preview}</div>
         <div class="info">
-          <div class="name">${name}</div>
+          <div class="name">${escapeHtml(name)}</div>
           <div class="meta">${fmtSize(f.size)} • ${fmtDate(f.created_at)}</div>
           <div class="actions">
             <a href="${f.url}" target="_blank" rel="noopener">View</a>
@@ -408,6 +186,10 @@
       </div>
     `;
             }).join('');
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
 
         function logout() {

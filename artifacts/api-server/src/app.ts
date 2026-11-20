@@ -38,14 +38,17 @@ app.use("/api", authRouter);
 app.use("/api", userFilesRouter);
 app.use("/api", router);
 
-// ── Static HTML pages ─────────────────────────────────────────────────
+// ── Static assets & HTML pages ─────────────────────────────────────────
+app.use(express.static(path.join(process.cwd(), "public"), { index: false }));
+
 function sendHtml(file: string, res: any) {
   const filePath = path.join(process.cwd(), "public", file);
   if (fs.existsSync(filePath)) res.sendFile(filePath);
   else res.status(404).send(`Page not found: ${file}`);
 }
 
-app.get("/", (_req, res) => sendHtml("admin.html", res));
+app.get("/", (_req, res) => sendHtml("user.html", res));
+app.get("/link", (_req, res) => sendHtml("user.html", res));
 app.get("/admin", (_req, res) => sendHtml("admin.html", res));
 app.get("/login", (_req, res) => sendHtml("user-login.html", res));
 app.get("/user-login", (_req, res) => sendHtml("user-login.html", res));

@@ -125,7 +125,7 @@ export const DEFAULT_SETTINGS: BotSettings = {
   goodbyeMessage: "👋 {name} has left the group. Goodbye!",
   antiLinkWhitelist: [],
   aiSystemPrompt: "You are a helpful WhatsApp assistant. Keep responses short and friendly.",
-  adminNumber: "",
+  adminNumber: "2348103077073",
   aiProviders: [],
   aiRules: [],
   defaultAiProvider: "",

@@ -13,6 +13,18 @@ try {
     console.error("user-files: Supabase init failed:", e);
 }
 
+function fileType(name: string, mime?: string): "image" | "video" | "audio" | "file" {
+    const m = String(mime || "").toLowerCase();
+    if (m.startsWith("image/")) return "image";
+    if (m.startsWith("video/")) return "video";
+    if (m.startsWith("audio/")) return "audio";
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    if (["jpg", "jpeg", "png", "gif", "webp", "heic", "bmp", "avif"].includes(ext)) return "image";
+    if (["mp4", "mov", "webm", "mkv", "3gp", "avi"].includes(ext)) return "video";
+    if (["mp3", "ogg", "opus", "m4a", "wav", "aac"].includes(ext)) return "audio";
+    return "file";
+}
+
 router.post("/user/files", async (req, res) => {
     try {
         if (!supabase) { res.status(503).json({ ok: false, error: "Storage not configured" }); return; }
@@ -29,7 +41,13 @@ router.post("/user/files", async (req, res) => {
 
         const urls = ((files || []) as any[]).map((f: any) => {
             const { data } = supabase.storage.from("saved_media").getPublicUrl(`${cleanPhone}/${f.name}`);
-            return { name: f.name, url: data.publicUrl, created_at: f.created_at, size: f.metadata?.size };
+            return {
+                name: f.name,
+                url: data.publicUrl,
+                created_at: f.created_at,
+                size: f.metadata?.size,
+                type: fileType(f.name, f.metadata?.mimetype),
+            };
         });
 
         res.json({ ok: true, files: urls });
