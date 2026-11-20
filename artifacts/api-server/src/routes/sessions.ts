@@ -69,6 +69,21 @@ router.post("/sessions/:id/pairing", async (req: Request, res: Response) => {
   }
 });
 
+// Alias route for React UI compatibility
+router.post("/sessions/:id/pairing-code", async (req: Request, res: Response) => {
+  try {
+    const id = getParam(req, "id");
+    const w = getWorker(id);
+    if (!w || !w.pairingCode) {
+      res.status(400).json({ ok: false, error: "Pairing code not ready yet. Try again." });
+      return;
+    }
+    res.json({ ok: true, code: w.pairingCode });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: (e as Error).message });
+  }
+});
+
 router.delete("/sessions/:id", (req: Request, res: Response) => {
   try {
     const id = getParam(req, "id");

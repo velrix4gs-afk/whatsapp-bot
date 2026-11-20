@@ -64,6 +64,7 @@ export function spawnWorker(sessionId: string, phone?: string): WorkerInfo {
                 info.status = "disconnected";
                 info.qrDataUrl = undefined;
                 info.pairingCode = undefined;
+                info.killedByUser = true; // Don't restart - user logged out
                 break;
             case "error":
                 workerEvents.emit(`error:${sessionId}`, msg.error);

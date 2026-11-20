@@ -3,828 +3,564 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NovaBot Admin Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>WhatsApp Bot Admin</title>
     <style>
-        :root {
-            --bg: #0a0c10;
-            --bg-elevated: #12151b;
-            --card: #161a22;
-            --border: #242a38;
-            --border-hover: #00d47e;
-            --text: #e8eaed;
-            --text-muted: #7a8295;
-            --text-dim: #4a5265;
-            --accent: #00d47e;
-            --accent-dim: #00d47e22;
-            --accent-hover: #00e88a;
-            --danger: #ff4d6a;
-            --danger-dim: #ff4d6a22;
-            --warning: #ffb800;
-            --radius-sm: 8px;
-            --radius-md: 12px;
-            --radius-lg: 16px;
-            --shadow: 0 4px 24px rgba(0,0,0,0.4);
-            --shadow-lg: 0 12px 48px rgba(0,0,0,0.5);
-            --transition: 160ms ease;
-        }
-        @media (prefers-color-scheme: light) {
-            :root {
-                --bg: #f5f7fa; --bg-elevated: #ffffff; --card: #ffffff; --card-hover: #f0f4f8;
-                --border: #e0e6ed; --border-hover: #00b86b; --text: #1a1f2e; --text-muted: #6b7280;
-                --text-dim: #9ca3af; --accent: #00b86b; --accent-dim: #00b86b1a; --accent-hover: #00a35f;
-                --shadow: 0 4px 24px rgba(15,23,42,0.08); --shadow-lg: 0 12px 48px rgba(15,23,42,0.12);
-            }
-        }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html { font-size: 15px; }
         body {
-            background: var(--bg); color: var(--text); font-family: 'Space Grotesk', -apple-system, sans-serif;
-            min-height: 100vh; line-height: 1.5; -webkit-font-smoothing: antialiased;
+            background: #0f1117; color: #e6e6e6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh; padding: 20px;
         }
-        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
-        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
-        h1 { font-size: clamp(1.25rem, 3vw, 1.5rem); font-weight: 700; color: var(--accent); }
-        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 20px; border-radius: var(--radius-md); font-family: inherit; font-size: 1rem; font-weight: 600; cursor: pointer; border: none; transition: all var(--transition); text-decoration: none; }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn-primary { background: var(--accent); color: var(--bg); }
-        .btn-primary:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 4px 16px var(--accent-dim); }
-        .btn-secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); }
-        .btn-secondary:hover:not(:disabled) { background: var(--card-hover); border-color: var(--text-dim); }
-        .btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid transparent; }
-        .btn-ghost:hover:not(:disabled) { background: var(--card); color: var(--text); }
-        .btn-danger { background: var(--danger); color: white; }
-        .btn-danger:hover:not(:disabled) { background: #ff3a4a; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
-        .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; box-shadow: var(--shadow-lg); }
-        .card h2 { font-size: 1.1rem; font-weight: 600; color: var(--accent); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
-        .tab-container { display: flex; gap: 4px; background: var(--bg-elevated); border-radius: var(--radius-md); padding: 4px; margin-bottom: 20px; }
-        .tab { flex: 1; text-align: center; padding: 10px; border-radius: var(--radius-md); cursor: pointer; font-size: 0.9rem; color: var(--text-muted); transition: all var(--transition); }
-        .tab.active { background: var(--accent); color: var(--bg); font-weight: 600; }
-        .form-group { margin-bottom: 16px; }
-        .form-group label { display: block; font-size: 0.8rem; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
-        .form-input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 12px 14px; border-radius: var(--radius-md); font-family: inherit; font-size: 1rem; transition: all var(--transition); }
-        .form-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
-        .form-input::placeholder { color: var(--text-dim); }
-        .select-input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 12px 14px; border-radius: var(--radius-md); font-family: inherit; font-size: 1rem; cursor: pointer; }
-        .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { font-size: 24px; color: #00ff88; margin-bottom: 20px; }
+        .status { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .status.connected { background: #00ff8822; color: #00ff88; }
+        .status.disconnected { background: #ff475722; color: #ff4757; }
+        .status.qr { background: #ffcc0022; color: #ffcc00; }
+        .btn, button { background: #00ff88; color: #0f1117; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .btn:hover { background: #00cc6a; }
+        .btn.secondary { background: transparent; color: #e6e6e6; border: 1px solid #333; }
+        .btn.secondary:hover { background: #1a1d26; }
+        .btn.danger { background: #ff4757; color: white; }
+        .btn.danger:hover { background: #d63447; }
+        .card { background: #1a1d26; border: 1px solid #252933; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+        .card h2 { font-size: 16px; margin-bottom: 12px; color: #00ff88; }
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-size: 13px; color: #888; margin-bottom: 6px; }
+        input, textarea, select { width: 100%; background: #0f1117; border: 1px solid #252933; color: #e6e6e6; padding: 10px; border-radius: 8px; font-size: 14px; outline: none; }
+        textarea { min-height: 60px; resize: vertical; }
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #252933; }
         .toggle-row:last-child { border-bottom: none; }
-        .toggle-row .label-wrapper { flex: 1; }
-        .toggle-row .label { font-size: 0.9rem; color: var(--text); font-weight: 500; }
-        .toggle-row .hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
-        .switch { position: relative; width: 44px; height: 24px; background: var(--border); border-radius: 12px; cursor: pointer; transition: background var(--transition); flex-shrink: 0; }
-        .switch.on { background: var(--accent); }
-        .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: white; border-radius: 50%; transition: transform var(--transition); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
-        .switch.on::after { transform: translateX(20px); }
-        .rule-item { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 12px; }
-        .rule-item h3 { font-size: 0.9rem; color: var(--accent); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
-        .rule-actions { display: flex; gap: 8px; }
-        .status-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
-        .status-badge.enabled { background: var(--accent-dim); color: var(--accent); }
-        .status-badge.disabled { background: var(--danger-dim); color: var(--danger); }
-        .provider-item { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 12px; }
-        .provider-item h3 { font-size: 0.9rem; color: var(--accent); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-        .provider-meta { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px; }
-        .provider-actions { display: flex; gap: 8px; }
-        .input-row { display: flex; gap: 12px; flex-wrap: wrap; }
-        .input-row .form-input { flex: 1; min-width: 120px; }
-        .select-inline { flex: 1; min-width: 120px; }
-        .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--accent); color: var(--bg); padding: 12px 24px; border-radius: var(--radius-md); font-weight: 600; font-size: 0.9rem; opacity: 0; transition: 0.3s; pointer-events: none; }
-        .toast.show { opacity: 1; }
-        .error { background: var(--danger-dim); border: 1px solid var(--danger); color: var(--danger); padding: 12px 16px; border-radius: var(--radius-md); font-size: 0.85rem; margin-top: 16px; display: none; }
-        .loading { text-align: center; padding: 40px 20px; color: var(--text-muted); }
-        .loading::after { content: ' ···'; }
-        .url-list { margin-top: 16px; padding: 12px; background: var(--bg); border-radius: var(--radius-md); font-family: monospace; font-size: 0.8rem; word-break: break-all; }
+        .switch { position: relative; width: 40px; height: 22px; background: #252933; border-radius: 11px; cursor: pointer; }
+        .switch.on { background: #00ff88; }
+        .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .switch::after { transform: translateX(0); }
+        .switch.on::after { transform: translateX(18px); }
+        .error { background: #ff475722; border: 1px solid #ff4757; color: #ff8888; padding: 10px; border-radius: 8px; font-size: 13px; margin-top: 10px; display: none; }
+        .success { background: #00ff8822; border: 1px solid #00ff88; color: #00ff88; padding: 10px; border-radius: 8px; font-size: 13px; margin-top: 10px; display: none; }
+        .qr-container { background: white; padding: 15px; border-radius: 8px; margin-top: 15px; text-align: center; }
+        .qr-container img { max-width: 220px; width: 100%; height: auto; }
+        .pairing-code { font-size: 28px; font-weight: bold; letter-spacing: 4px; color: #00ff88; margin: 10px 0; }
     </style>
 </head>
-
 <body>
     <div class="container">
-        <header>
-            <h1>🤖 NovaBot Admin</h1>
-            <div>
-                <button class="btn btn-secondary" onclick="showAuthModal()">Login</button>
-                <button class="btn btn-ghost" onclick="showAddSessionModal()">+ Add Session</button>
-            </div>
-        </header>
+        <h1>🤖 WhatsApp Bot Admin</h1>
+        <span id="status" class="status">Checking...</span>
+        <div id="error" class="error"></div>
+        <div id="success" class="success"></div>
 
-        <div id="auth-modal" class="modal-overlay">
-            <div class="modal">
-                <h2>Admin Login</h2>
+        <div id="login-screen" style="display:none;">
+            <div class="card">
+                <h2>🔐 Admin Login</h2>
                 <div class="form-group">
                     <label>WhatsApp Number (with country code)</label>
-                    <input type="tel" id="admin-phone" placeholder="e.g., 2348103077073" />
+                    <input type="tel" id="login-phone" placeholder="e.g., 2348103077073" />
                 </div>
                 <div class="form-group">
-                    <label>PIN</label>
-                    <input type="password" id="admin-pin" maxlength="4" inputmode="numeric" placeholder="••••" />
+                    <label>4-digit PIN</label>
+                    <input type="password" id="login-pin" maxlength="4" inputmode="numeric" placeholder="••••" />
                 </div>
-                <div id="auth-error" class="error"></div>
-                <div class="actions">
-                    <button class="btn btn-secondary" onclick="closeAuthModal()">Cancel</button>
-                    <button class="btn btn-primary" onclick="login()">Login</button>
-                </div>
+                <button onclick="doLogin()">Login</button>
+                <div id="login-error" class="error"></div>
             </div>
         </div>
 
-        <div id="add-session-modal" class="modal-overlay">
-            <div class="modal">
-                <h2>Add Session</h2>
+        <div id="admin-screen" style="display:none;">
+            <div class="card">
+                <h2>📋 Bot Settings</h2>
                 <div class="form-group">
-                    <label>Label</label>
-                    <input type="text" id="session-label" placeholder="e.g., Work Number" />
+                    <label>Admin Number (owner WhatsApp, with country code)</label>
+                    <input type="tel" id="admin-number" placeholder="e.g., 2348103077073" />
                 </div>
                 <div class="form-group">
-                    <label>Phone Number</label>
-                    <input type="tel" id="session-phone" placeholder="e.g., 2348103077073" />
-                </div>
-                <div id="add-session-error" class="error"></div>
-                <div id="pairing-view" style="display:none;">
-                    <div class="pairing-code">
-                        <div style="font-size:13px;color:#888;">Enter this code in WhatsApp</div>
-                        <div class="code" id="pairing-code-text">--------</div>
-                        <div class="hint">WhatsApp → Settings → Linked Devices → Link with Phone Number</div>
-                        <div class="timer" id="pairing-timer">20s remaining</div>
-                    </div>
-                    <div class="actions" style="justify-content:center;margin-top:20px;">
-                        <button class="btn btn-secondary" onclick="closeAddSessionModal()">Done</button>
-                        <button class="btn btn-ghost" onclick="retryPairing()">Retry</button>
-                    </div>
-                </div>
-                <div id="add-session-form-view" class="actions" style="margin-top:20px;flex-direction:column;">
-                    <button class="btn btn-secondary" onclick="closeAddSessionModal()">Cancel</button>
-                    <button class="btn btn-primary" onclick="createSession()">Get Pairing Code</button>
+                    <label>Reply Mode</label>
+                    <select id="reply-mode">
+                        <option value="only">only - Admin only</option>
+                        <option value="all">all - Everyone</option>
+                    </select>
                 </div>
             </div>
-        </div>
 
-        <div id="admin-content" style="display:none;">
-            <div class="tab-container">
-                <button class="tab active" onclick="switchTab('bot')">Bot Settings</button>
-                <button class="tab" onclick="switchTab('ai')">AI Configuration</button>
-                <button class="tab" onclick="switchTab('sessions')">Sessions</button>
-                <button class="tab" onclick="switchTab('files')">Saved Files</button>
+            <div class="card">
+                <h2>⚙️ Features</h2>
+                <div id="features">
+                    <div class="toggle-row">
+                        <span>Auto-like statuses</span>
+                        <label class="switch" id="toggle-auto-react"><input type="checkbox" onchange="updateFeature('autoReact', this.checked)"></label>
+                    </div>
+                    <div class="toggle-row">
+                        <span>Save status media</span>
+                        <label class="switch" id="toggle-save-status"><input type="checkbox" onchange="updateFeature('saveStatus', this.checked)"></label>
+                    </div>
+                    <div class="toggle-row">
+                        <span>Save profile pictures</span>
+                        <label class="switch" id="toggle-save-pp"><input type="checkbox" onchange="updateFeature('savePP', this.checked)"></label>
+                    </div>
+                    <div class="toggle-row">
+                        <span>Save view-once media</span>
+                        <label class="switch" id="toggle-view-once"><input type="checkbox" onchange="updateFeature('viewOnce', this.checked)"></label>
+                    </div>
+                    <div class="toggle-row">
+                        <span>AI chat replies</span>
+                        <label class="switch" id="toggle-ai-chat"><input type="checkbox" onchange="updateFeature('aiChat', this.checked)"></label>
+                    </div>
+                    <div class="toggle-row">
+                        <span>Auto-typing indicator</span>
+                        <label class="switch" id="toggle-auto-presence"><input type="checkbox" onchange="updateFeature('autoPresence', this.checked)"></label>
+                    </div>
+                </div>
             </div>
 
-            <!-- Bot Settings Tab -->
-            <div id="tab-bot" class="tab-content">
-                <div class="card">
-                    <h2>📋 Bot Settings</h2>
+            <div class="card">
+                <h2>🤖 AI Configuration</h2>
+                <div class="form-group">
+                    <label>AI System Prompt</label>
+                    <textarea id="ai-prompt">You are a helpful WhatsApp assistant. Keep responses short and friendly.</textarea>
+                </div>
+                <div class="form-group">
+                    <label>Default AI Provider</label>
+                    <select id="default-provider">
+                        <option value="">Select provider...</option>
+                    </select>
+                </div>
+                <button onclick="addProvider()">➕ Add Provider</button>
+                <div id="providers-list"></div>
+                <div id="provider-form" style="display:none;margin-top:15px;padding:15px;background:#0a0c10;border-radius:8px;">
                     <div class="form-group">
-                        <label>Admin Number (owner WhatsApp)</label>
-                        <input type="tel" id="admin-number-input" class="form-input" placeholder="e.g., 2348103077073" />
-                        <div id="admin-number-hint" class="hint">Number that can use admin commands (reply-mode: only)</div>
+                        <select id="provider-type">
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="gemini">Gemini</option>
+                            <option value="custom">Custom</option>
+                        </select>
                     </div>
                     <div class="form-group">
-                        <label>AI System Prompt</label>
-                        <textarea id="ai-prompt-input" class="form-input" rows="3" placeholder="You are a helpful WhatsApp assistant..."></textarea>
+                        <input type="text" id="provider-name" placeholder="Provider name" />
                     </div>
-                </div>
-
-                <div class="card">
-                    <h2>⚙️ Features</h2>
-                    <div id="features-toggles"></div>
-                    <button class="btn btn-primary" style="margin-top:16px;" onclick="saveFeatures()">Save All Features</button>
-                </div>
-            </div>
-
-            <!-- AI Configuration Tab -->
-            <div id="tab-ai" class="tab-content" style="display:none;">
-                <div class="card">
-                    <h2>🔌 AI Providers</h2>
-                    <div id="providers-list"></div>
-                    <button class="btn btn-primary" onclick="showAddProviderModal()">+ Add Provider</button>
-                </div>
-
-                <div class="card">
-                    <h2>🧠 AI Rules (Training)</h2>
-                    <div id="rules-list"></div>
-                    <button class="btn btn-primary" onclick="showAddRuleModal()">+ Add Rule</button>
-                </div>
-
-                <div class="card">
-                    <h2>⚙️ AI System Prompt</h2>
                     <div class="form-group">
-                        <textarea id="system-prompt" class="form-input" rows="3" placeholder="You are a helpful WhatsApp assistant..."></textarea>
+                        <input type="password" id="provider-apikey" placeholder="API Key" />
                     </div>
-                    <button class="btn btn-primary" onclick="saveSystemPrompt()">Save Prompt</button>
+                    <div class="form-group">
+                        <input type="text" id="provider-model" placeholder="Model name" />
+                    </div>
+                    <div class="form-group">
+                        <input type="text" id="provider-baseurl" placeholder="Base URL (for custom)" />
+                    </div>
+                    <button onclick="saveProvider()">Save</button>
+                    <button class="secondary" onclick="cancelProvider()">Cancel</button>
                 </div>
             </div>
 
-            <!-- Sessions Tab -->
-            <div id="tab-sessions" class="tab-content" style="display:none;">
-                <div class="card">
-                    <h2>📱 Active Sessions</h2>
-                    <div id="sessions-list"></div>
+            <div class="card">
+                <h2>🧠 AI Rules (Training)</h2>
+                <div id="rules-list"></div>
+                <button onclick="addRule()">➕ Add Rule</button>
+                <div id="rule-form" style="display:none;margin-top:15px;padding:15px;background:#0a0c10;border-radius:8px;">
+                    <div class="form-group">
+                        <input type="text" id="rule-trigger" placeholder="When user says: 'happy'" />
+                    </div>
+                    <div class="form-group">
+                        <textarea id="rule-response" placeholder="Bot replies: 'I'm glad you're happy! 😊'"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <select id="rule-matchtype">
+                            <option value="contains">contains</option>
+                            <option value="exact">exact match</option>
+                            <option value="startsWith">starts with</option>
+                            <option value="regex">regex</option>
+                        </select>
+                    </div>
+                    <label><input type="checkbox" id="rule-enabled" checked /> Enabled</label>
+                    <button onclick="saveRule()">Save Rule</button>
+                    <button class="secondary" onclick="cancelRule()">Cancel</button>
                 </div>
             </div>
 
-            <!-- Files Tab -->
-            <div id="tab-files" class="tab-content" style="display:none;">
-                <div class="card">
-                    <h2>📁 Saved Media Links</h2>
-                    <div class="url-list" id="files-url-list">
-                        https://supabase.com/dashboard/storage/buckets/saved_media
+            <div class="card">
+                <h2>📱 Sessions</h2>
+                <div id="sessions"></div>
+                <button onclick="addSession()">➕ Add Session</button>
+                <div id="session-form" style="display:none;margin-top:15px;padding:15px;background:#0a0c10;border-radius:8px;">
+                    <div class="form-group">
+                        <input type="text" id="session-label" placeholder="Label (e.g., Work Number)" />
+                    </div>
+                    <div class="form-group">
+                        <input type="tel" id="session-phone" placeholder="Phone number (e.g., 2348103077073)" />
+                    </div>
+                    <button onclick="createSession()">Get Pairing Code</button>
+                    <button class="secondary" onclick="cancelSession()">Cancel</button>
+                    <div id="pairing-view" style="display:none;margin-top:10px;">
+                        <p style="color:#888;">Enter this code in WhatsApp → Settings → Linked Devices → Link with Phone Number</p>
+                        <div class="pairing-code" id="pairing-code">------</div>
+                        <button class="secondary" onclick="retryPairing()">Retry</button>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <div class="toast" id="toast">✅ Saved</div>
-    <div id="error-toast" class="error" style="display:none;"></div>
-
-    <!-- Add Provider Modal -->
-    <div id="add-provider-modal" class="modal-overlay">
-        <div class="modal">
-            <h2 id="provider-modal-title">Add AI Provider</h2>
-            <div class="form-group">
-                <label>Provider Type</label>
-                <select id="provider-type" class="select-input">
-                    <option value="openai">OpenAI (GPT-4.o, o1, etc.)</option>
-                    <option value="anthropic">Anthropic (Claude)</option>
-                    <option value="gemini">Google Gemini</option>
-                    <option value="custom">Custom Endpoint</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>API Key</label>
-                <input type="password" id="provider-apikey" placeholder="sk-... or gemini key..." />
-            </div>
-            <div class="form-group">
-                <label>Model</label>
-                <input type="text" id="provider-model" placeholder="gpt-4o-mini, claude-3-5-haiku, gemini-2.5-flash..." />
-            </div>
-            <div class="form-group" id="custom-url-group" style="display:none;">
-                <label>Base URL (for custom)</label>
-                <input type="text" id="provider-baseurl" placeholder="https://api.example.com/v1" />
-            </div>
-            <input type="hidden" id="editing-provider-id" />
-            <div class="actions">
-                <button class="btn btn-secondary" onclick="closeAddProviderModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="saveProvider()">Save</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Add Rule Modal -->
-    <div id="add-rule-modal" class="modal-overlay">
-        <div class="modal">
-            <h2 id="rule-modal-title">Add AI Rule</h2>
-            <div class="form-group">
-                <label>Trigger (what user says)</label>
-                <input type="text" id="rule-trigger" class="form-input" placeholder="e.g., I'm feeling sad" />
-            </div>
-            <div class="form-group">
-                <label>Response (bot reply)</label>
-                <textarea id="rule-response" class="form-input" rows="3" placeholder="e.g., I'm sorry to hear that..."></textarea>
-            </div>
-            <div class="form-group">
-                <label>Match Type</label>
-                <select id="rule-matchtype" class="select-input">
-                    <option value="exact">Exact Match</option>
-                    <option value="contains">Contains</option>
-                    <option value="startsWith">Starts With</option>
-                    <option value="endsWith">Ends With</option>
-                    <option value="regex">Regex</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>
-                    <input type="checkbox" id="rule-enabled" checked /> Enabled
-                </label>
-            </div>
-            <input type="hidden" id="editing-rule-id" />
-            <div class="actions">
-                <button class="btn btn-secondary" onclick="closeAddRuleModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="saveRule()">Save Rule</button>
-            </div>
+            <button style="margin-top:20px;" onclick="saveAll()">💾 Save All Settings</button>
         </div>
     </div>
 
     <script>
-        const API = '/api';
-        let isAdmin = false;
-        let currentSettings = {
-            features: {
-                autoReact: true,
-                saveStatus: true,
-                savePP: true,
-                viewOnce: true,
-                saveProfile: true,
-                antiDelete: false,
-                autoDownloadStatus: false,
-                antiLink: false,
-                welcomeGoodbye: false,
-                aiChat: true,
-                customCommands: true,
-                autoPresence: true,
-                replyMode: "only"
-            },
-            reactionEmojis: ["❤️", "🔥", "😍", "🥰", "😂", "👏", "🎉", "💯", "✨", "😊"],
-            adminNumber: "",
-            aiSystemPrompt: "You are a helpful WhatsApp assistant. Keep responses short and friendly.",
+        var settings = {
+            features: { autoReact: true, saveStatus: true, savePP: true, viewOnce: true, aiChat: true, autoPresence: true },
+            adminNumber: '',
+            aiSystemPrompt: 'You are a helpful WhatsApp assistant. Keep responses short and friendly.',
+            defaultAiProvider: '',
             aiProviders: [],
-            aiRules: [],
-            defaultAiProvider: ""
+            aiRules: []
         };
 
-        function escapeHtml(str) {
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
-        }
+        function escapeHtml(str) { var d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
 
         async function loadSettings() {
             try {
-                const res = await fetch(`${API}/settings`);
-                if (res.ok) {
-                    const data = await res.json();
+                var r = await fetch('/api/settings');
+                if (r.ok) {
+                    var data = await r.json();
                     if (data.settings) {
-                        currentSettings = data.settings;
-                        renderAll();
+                        settings = Object.assign({}, data.settings, { features: Object.assign({}, settings.features, data.settings.features) });
                     }
                 }
-            } catch (e) {
-                // Use defaults
-            }
+            } catch(e) {}
             renderAll();
+            checkBotStatus();
+        }
+
+        async function checkBotStatus() {
+            var s = document.getElementById('status');
+            try {
+                var r = await fetch('/api/bot/status');
+                var data = await r.json();
+                s.textContent = data.status || 'disconnected';
+                s.className = 'status ' + (data.status === 'connected' ? 'connected' : (data.status === 'qr' ? 'qr' : 'disconnected'));
+            } catch(e) {
+                s.textContent = 'error';
+                s.className = 'status disconnected';
+            }
         }
 
         function renderAll() {
-            document.getElementById('admin-content').style.display = 'block';
-            renderBotSettings();
-            renderFeatures();
-            renderAIProviders();
-            renderAIRules();
-            renderSystemPrompt();
-            renderSessions();
-            renderFiles();
-        }
-
-        function renderBotSettings() {
-            document.getElementById('admin-number-input').value = currentSettings.adminNumber || "";
-            document.getElementById('ai-prompt-input').value = currentSettings.aiSystemPrompt || "";
-        }
-
-        function renderFeatures() {
-            const togglesHtml = Object.entries(currentSettings.features || {}).map(([key, value]) => {
-                const labels = {
-                    autoReact: "Auto-like statuses",
-                    saveStatus: "Save statuses",
-                    savePP: "Save profile pictures",
-                    viewOnce: "Save view-once media",
-                    saveProfile: "Auto-save profile",
-                    antiDelete: "Anti-delete",
-                    autoDownloadStatus: "Download statuses",
-                    antiLink: "Anti-link filter",
-                    welcomeGoodbye: "Welcome/Goodbye messages",
-                    aiChat: "AI chat replies",
-                    customCommands: "Custom commands",
-                    autoPresence: "Auto-typing/presence"
-                };
-                const hints = {
-                    autoReact: "React to every status update",
-                    saveStatus: "Save status media to your file list",
-                    savePP: "Auto-save profile pictures",
-                    viewOnce: "Auto-forward view-once to DM",
-                    saveProfile: "Save contact profile pic",
-                    antiDelete: "Re-send deleted messages",
-                    autoDownloadStatus: "Pre-download status media",
-                    antiLink: "Filter link messages",
-                    welcomeGoodbye: "Send welcome/goodbye in groups",
-                    aiChat: "AI replies to messages",
-                    customCommands: "Enable .command triggers",
-                    autoPresence: "Show typing indicator"
-                };
-                return `
-                    <div class="toggle-row">
-                        <div class="label-wrapper">
-                            <div class="label">${labels[key] || key}</div>
-                            <div class="hint">${hints[key]}</div>
-                        </div>
-                        <label class="switch ${value ? 'on' : ''}" for="${key}">
-                            <input type="checkbox" id="${key}" ${value ? 'checked' : ''} onchange="toggleFeature('${key}', this.checked)" />
-                        </label>
-                    </div>
-                `;
-            }).join('');
-            document.getElementById('features-toggles').innerHTML = togglesHtml || '<div class="loading"></div>';
-        }
-
-        function toggleFeature(key, value) {
-            currentSettings.features[key] = value;
-        }
-
-        async function saveFeatures() {
-            const res = await fetch(`${API}/settings`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(currentSettings)
+            if (!settings.features) settings.features = { autoReact: true, saveStatus: true, savePP: true, viewOnce: true, aiChat: true, autoPresence: true };
+            document.getElementById('admin-number').value = settings.adminNumber || '';
+            document.getElementById('reply-mode').value = settings.features.replyMode || 'only';
+            document.getElementById('ai-prompt').value = settings.aiSystemPrompt || '';
+            
+            // Toggles
+            ['autoReact', 'saveStatus', 'savePP', 'viewOnce', 'aiChat', 'autoPresence'].forEach(function(f) {
+                var el = document.getElementById('toggle-' + f);
+                if (el && settings.features[f] !== undefined) {
+                    var cb = el.querySelector('input[type=checkbox]');
+                    if (cb) cb.checked = !!settings.features[f];
+                }
             });
-            const data = await res.json();
-            showToast(data.ok ? 'Settings saved' : data.error);
-        }
 
-        function switchTab(tab) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
-            document.querySelector(`.tab[onclick="switchTab('${tab}')"]`).classList.add('active');
-            document.getElementById(`tab-${tab}`).style.display = 'block';
-        }
-
-        // ── Admin Number Save ───────────────────────
-        async function saveAdminNumber() {
-            const adminNum = document.getElementById('admin-number-input').value.trim().replace(/\D/g, '');
-            if (!adminNum) return showToast('Enter a phone number');
-            currentSettings.adminNumber = adminNum;
-            const res = await fetch(`${API}/settings`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(currentSettings)
-            });
-            const data = await res.json();
-            showToast(data.ok ? 'Admin number saved' : data.error);
-        }
-
-        // ── System Prompt ────────────────────────────
-        function renderSystemPrompt() {
-            document.getElementById('system-prompt').value = currentSettings.aiSystemPrompt || "";
-        }
-
-        async function saveSystemPrompt() {
-            const prompt = document.getElementById('system-prompt').value;
-            currentSettings.aiSystemPrompt = prompt;
-            const res = await fetch(`${API}/settings`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(currentSettings)
-            });
-            const data = await res.json();
-            showToast(data.ok ? 'System prompt saved' : data.error);
-        }
-
-        // ── AI Providers ─────────────────────────────
-        function renderAIProviders() {
-            const providers = currentSettings.aiProviders || [];
-            document.getElementById('providers-list').innerHTML = providers.length ?
-                providers.map(p => `
-                    <div class="provider-item">
-                        <h3>
-                            ${escapeHtml(p.provider.toUpperCase())} ${p.model ? '-' + escapeHtml(p.model) : ''}
-                            <span class="provider-actions">
-                                <button class="btn btn-ghost btn-sm" onclick="editProvider('${p.id}')">✏️</button>
-                                <button class="btn btn-danger btn-sm" onclick="deleteProvider('${p.id}')">🗑️</button>
-                            </span>
-                        </h3>
-                        <div class="provider-meta">
-                            ${p.apiKey ? '🔑 Key: ' + p.apiKey.substring(0, 12) + '...' : 'No key'}<br/>
-                            ${p.baseUrl ? 'URL: ' + escapeHtml(p.baseUrl) : ''}
-                        </div>
-                    </div>
-                `).join('') : '<p style="color:var(--text-muted);padding:16px;">No providers configured.</p>';
-        }
-
-        function showAddProviderModal(provider = null) {
-            document.getElementById('add-provider-modal').classList.add('active');
-            document.getElementById('provider-type').value = provider?.provider || 'openai';
-            document.getElementById('provider-apikey').value = provider?.apiKey || '';
-            document.getElementById('provider-model').value = provider?.model || '';
-            document.getElementById('provider-baseurl').value = provider?.baseUrl || '';
-            document.getElementById('editing-provider-id').value = provider?.id || '';
-            document.getElementById('provider-modal-title').textContent = provider ? 'Edit Provider' : 'Add AI Provider';
-
-            document.getElementById('provider-type').addEventListener('change', toggleProviderFields);
-            toggleProviderFields();
-        }
-
-        function closeAddProviderModal() {
-            document.getElementById('add-provider-modal').classList.remove('active');
-        }
-
-        function toggleProviderFields() {
-            const type = document.getElementById('provider-type').value;
-            document.getElementById('custom-url-group').style.display = type === 'custom' ? 'block' : 'none';
-        }
-
-        async function saveProvider() {
-            const type = document.getElementById('provider-type').value;
-            const apiKey = document.getElementById('provider-apikey').value.trim();
-            const model = document.getElementById('provider-model').value.trim();
-            const baseUrl = type === 'custom' ? document.getElementById('provider-baseurl').value.trim() || undefined : undefined;
-            const id = document.getElementById('editing-provider-id').value || 'provider_' + Date.now();
-
-            if (!apiKey || !model) {
-                return showError('API Key and Model are required');
+            // Providers
+            var provList = document.getElementById('providers-list');
+            var provOpt = document.getElementById('default-provider');
+            provOpt.innerHTML = '<option value="">Select provider...</option>';
+            if (settings.aiProviders && settings.aiProviders.length) {
+                settings.aiProviders.forEach(function(p) {
+                    var opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = p.provider.toUpperCase() + (p.model ? ': ' + p.model : '');
+                    provOpt.appendChild(opt);
+                });
+                if (settings.defaultAiProvider) provOpt.value = settings.defaultAiProvider;
             }
-
-            const provider = { id, provider: type, apiKey, model, baseUrl };
-            let providers = currentSettings.aiProviders || [];
-            if (id !== 'provider_' + Date.now()) {
-                providers = providers.map(p => p.id === id ? provider : p);
-            } else {
-                providers.push(provider);
-            }
-
-            currentSettings.aiProviders = providers;
-            const res = await fetch(`${API}/settings`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(currentSettings)
-            });
-            const data = await res.json();
-            if (data.ok) {
-                closeAddProviderModal();
-                renderAIProviders();
-                showToast('Provider saved');
-            } else {
-                showError(data.error);
-            }
+            renderRules();
         }
 
-        async function editProvider(id) {
-            const provider = currentSettings.aiProviders?.find(p => p.id === id);
-            if (provider) showAddProviderModal(provider);
+        function updateFeature(name, checked) {
+            settings.features[name] = checked;
         }
 
-        async function deleteProvider(id) {
-            currentSettings.aiProviders = (currentSettings.aiProviders || []).filter(p => p.id !== id);
-            const res = await fetch(`${API}/settings`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(currentSettings)
-            });
-            const data = await res.json();
-            showToast(data.ok ? 'Provider deleted' : data.error);
-            renderAIProviders();
+        async function authRequired() {
+            document.getElementById('admin-screen').style.display = 'none';
+            document.getElementById('login-screen').style.display = 'block';
         }
 
-        // ── AI Rules ───────────────────────────────────
-        function renderAIRules() {
-            const rules = currentSettings.aiRules || [];
-            document.getElementById('rules-list').innerHTML = rules.length ?
-                rules.map(r => `
-                    <div class="rule-item">
-                        <h3>
-                            ${r.enabled ? '✅' : '❌'} ${escapeHtml(r.trigger.substring(0, 40))}
-                            <span class="rule-actions">
-                                <button class="btn btn-ghost btn-sm" onclick="editRule('${r.id}')">✏️</button>
-                                <button class="btn btn-danger btn-sm" onclick="deleteRule('${r.id}')">🗑️</button>
-                            </span>
-                        </h3>
-                        <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:8px;">
-                            Response: ${escapeHtml(r.response.substring(0, 60))}...<br/>
-                            Match: <span class="status-badge ${r.enabled ? 'enabled' : 'disabled'}">${r.matchType}</span>
-                        </div>
-                    </div>
-                `).join('') : '<p style="color:var(--text-muted);padding:16px;">No rules configured.</p>';
-        }
+        async function doLogin() {
+            var phone = document.getElementById('login-phone').value.trim().replace(/\D/g, '');
+            var pin = document.getElementById('login-pin').value;
+            var errEl = document.getElementById('login-error');
+            errEl.style.display = 'none';
 
-        function showAddRuleModal(rule = null) {
-            document.getElementById('add-rule-modal').classList.add('active');
-            document.getElementById('rule-trigger').value = rule?.trigger || '';
-            document.getElementById('rule-response').value = rule?.response || '';
-            document.getElementById('rule-matchtype').value = rule?.matchType || 'contains';
-            document.getElementById('rule-enabled').checked = rule?.enabled !== false;
-            document.getElementById('editing-rule-id').value = rule?.id || '';
-            document.getElementById('rule-modal-title').textContent = rule ? 'Edit Rule' : 'Add AI Rule';
-        }
-
-        function closeAddRuleModal() {
-            document.getElementById('add-rule-modal').classList.remove('active');
-        }
-
-        async function saveRule() {
-            const trigger = document.getElementById('rule-trigger').value.trim();
-            const response = document.getElementById('rule-response').value.trim();
-            const matchType = document.getElementById('rule-matchtype').value;
-            const enabled = document.getElementById('rule-enabled').checked;
-            const id = document.getElementById('editing-rule-id').value || 'rule_' + Date.now();
-
-            if (!trigger || !response) {
-                return showError('Trigger and Response are required');
-            }
-
-            const rule = { id, trigger, response, matchType, enabled, createdAt: Date.now() };
-            let rules = currentSettings.aiRules || [];
-            if (id !== 'rule_' + Date.now()) {
-                rules = rules.map(r => r.id === id ? rule : r);
-            } else {
-                rules.push(rule);
-            }
-
-            currentSettings.aiRules = rules;
-            const res = await fetch(`${API}/settings`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(currentSettings)
-            });
-            const data = await res.json();
-            if (data.ok) {
-                closeAddRuleModal();
-                renderAIRules();
-                showToast('Rule saved');
-            } else {
-                showError(data.error);
-            }
-        }
-
-        async function editRule(id) {
-            const rule = currentSettings.aiRules?.find(r => r.id === id);
-            if (rule) showAddRuleModal(rule);
-        }
-
-        async function deleteRule(id) {
-            currentSettings.aiRules = (currentSettings.aiRules || []).filter(r => r.id !== id);
-            const res = await fetch(`${API}/settings`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(currentSettings)
-            });
-            const data = await res.json();
-            showToast(data.ok ? 'Rule deleted' : data.error);
-            renderAIRules();
-        }
-
-        // ── Sessions ───────────────────────────────────
-        async function renderSessions() {
-            const res = await fetch(`${API}/sessions`);
-            const data = await res.json();
-            const sessions = data.sessions || [];
-            document.getElementById('sessions-list').innerHTML = sessions.length ?
-                sessions.map(s => `
-                    <div class="card" style="margin-bottom:12px;">
-                        <div style="display:flex;justify-content:space-between;align-items:center;">
-                            <div>
-                                <strong>${escapeHtml(s.label || s.id)}</strong><br/>
-                                <small style="color:var(--text-muted);">ID: ${escapeHtml(s.id)}</small>
-                            </div>
-                            <span class="status-badge ${s.status}">${s.status}</span>
-                        </div>
-                        ${s.phoneNumber ? `<div style="margin-top:8px;font-size:0.9rem;color:var(--text-muted);">📱 +${s.phoneNumber}</div>` : ''}
-                        <div style="margin-top:12px;display:flex;gap:8px;">
-                            <button class="btn btn-secondary btn-sm" onclick="copySessionId('${s.id}')">Copy ID</button>
-                            ${s.status !== 'connected' ? `<button class="btn btn-danger btn-sm" onclick="deleteSession('${s.id}')">Delete</button>` : ''}
-                        </div>
-                    </div>
-                `).join('') : '<p style="color:var(--text-muted);padding:16px;">No sessions configured.</p>';
-        }
-
-        async function deleteSession(id) {
-            if (!confirm(`Delete session "${id}"?`)) return;
-            const res = await fetch(`${API}/sessions/${id}`, { method: 'DELETE' });
-            const data = await res.json();
-            showToast(data.ok ? 'Session deleted' : data.error);
-            renderSessions();
-        }
-
-        function copySessionId(id) {
-            navigator.clipboard.writeText(id);
-            showToast('Session ID copied');
-        }
-
-        // ── Auth Modal ───────────────────────────────
-        function showAuthModal() {
-            document.getElementById('auth-modal').classList.add('active');
-        }
-
-        function closeAuthModal() {
-            document.getElementById('auth-modal').classList.remove('active');
-        }
-
-        async function login() {
-            const phone = document.getElementById('admin-phone').value.trim().replace(/\D/g, '');
-            const pin = document.getElementById('admin-pin').value;
-            const res = await fetch(`${API}/settings/pin-login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone, pin })
-            });
-            const data = await res.json();
-            if (data.ok) {
-                localStorage.setItem('token', data.token);
-                isAdmin = true;
-                closeAuthModal();
-                document.getElementById('admin-content').style.display = 'block';
-                loadSettings();
-                showToast('Logged in successfully');
-            } else {
-                showError(data.error || 'Login failed');
-            }
-        }
-
-        // ── Add Session Modal ───────────────────────
-        async function showAddSessionModal() {
-            document.getElementById('add-session-modal').classList.add('active');
-            document.getElementById('add-session-form-view').style.display = 'block';
-            document.getElementById('pairing-view').style.display = 'none';
-            document.getElementById('add-session-error').style.display = 'none';
-            document.getElementById('session-label').value = '';
-            document.getElementById('session-phone').value = '';
-        }
-
-        function closeAddSessionModal() {
-            document.getElementById('add-session-modal').classList.remove('active');
-        }
-
-        async function createSession() {
-            const label = document.getElementById('session-label').value.trim();
-            const phone = document.getElementById('session-phone').value.trim().replace(/\D/g, '');
-            const errEl = document.getElementById('add-session-error');
-
-            if (!phone || phone.length < 7) {
-                errEl.textContent = 'Please enter a valid phone number.';
+            if (!phone || !pin) {
+                errEl.textContent = 'Enter phone number and PIN';
                 errEl.style.display = 'block';
                 return;
             }
 
-            const sessionId = `user_${phone}`;
-
             try {
-                const res = await fetch(`${API}/sessions`, {
+                var r = await fetch('/api/settings/pin-login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: sessionId, label: label || `+${phone}` })
+                    body: JSON.stringify({ phone: phone, pin: pin })
                 });
-                const data = await res.json();
-                if (!data.ok) throw new Error(data.error || 'Failed to create session');
-
-                await new Promise(r => setTimeout(r, 2500));
-
-                const pairRes = await fetch(`${API}/sessions/${sessionId}/pairing`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone })
-                });
-                const pairData = await pairRes.json();
-                if (!pairData.ok) throw new Error(pairData.error || 'Failed to get pairing code');
-
-                document.getElementById('pairing-code-text').textContent = pairData.code;
-                document.getElementById('add-session-form-view').style.display = 'none';
-                document.getElementById('pairing-view').style.display = 'block';
-                startPairingTimer();
-            } catch (e) {
-                errEl.textContent = e.message;
+                var data = await r.json();
+                if (data.ok) {
+                    localStorage.setItem('admin-token', data.token);
+                    localStorage.setItem('admin-phone', phone);
+                    document.getElementById('login-screen').style.display = 'none';
+                    document.getElementById('admin-screen').style.display = 'block';
+                    loadSettings();
+                } else {
+                    errEl.textContent = data.error || 'Login failed';
+                    errEl.style.display = 'block';
+                }
+            } catch(e) {
+                errEl.textContent = 'Network error';
                 errEl.style.display = 'block';
             }
         }
 
-        let pairingTimer;
-        function startPairingTimer() {
-            let seconds = 20;
-            const timerEl = document.getElementById('pairing-timer');
-            timerEl.textContent = `${seconds}s remaining`;
-            pairingTimer = setInterval(() => {
-                seconds--;
-                timerEl.textContent = `${seconds}s remaining`;
-                if (seconds <= 0) {
-                    clearInterval(pairingTimer);
+        async function saveAll() {
+            settings.adminNumber = document.getElementById('admin-number').value.replace(/\D/g, '');
+            settings.features.replyMode = document.getElementById('reply-mode').value;
+            settings.aiSystemPrompt = document.getElementById('ai-prompt').value;
+            settings.defaultAiProvider = document.getElementById('default-provider').value;
+
+            try {
+                var r = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+                var data = await r.json();
+                if (data.ok) {
+                    document.getElementById('success').textContent = '✅ Settings saved!';
+                    document.getElementById('success').style.display = 'block';
+                    setTimeout(function() { document.getElementById('success').style.display = 'none'; }, 3000);
+                } else {
+                    document.getElementById('error').textContent = data.error || 'Save failed';
+                    document.getElementById('error').style.display = 'block';
+                    setTimeout(function() { document.getElementById('error').style.display = 'none'; }, 3000);
                 }
-            }, 1000);
-        }
-
-        async function retryPairing() {
-            const sessionId = document.getElementById('add-session-form-view').querySelector('h2')?.textContent?.match(/Session: (.+)/)?.[1];
-            if (!sessionId) return;
-            const phone = document.getElementById('session-phone').value;
-            await createSession();
-        }
-
-        // ── Toast ────────────────────────────────────
-        function showToast(msg) {
-            const t = document.getElementById('toast');
-            t.textContent = msg;
-            t.classList.add('show');
-            setTimeout(() => t.classList.remove('show'), 3000);
+            } catch(e) {
+                document.getElementById('error').textContent = 'Network error';
+                document.getElementById('error').style.display = 'block';
+                setTimeout(function() { document.getElementById('error').style.display = 'none'; }, 3000);
+            }
         }
 
         function showError(msg) {
-            const e = document.getElementById('error-toast');
-            e.textContent = msg;
-            e.style.display = 'block';
-            setTimeout(() => e.style.display = 'none', 4000);
+            var el = document.getElementById('error');
+            el.textContent = msg;
+            el.style.display = 'block';
+            setTimeout(function() { el.style.display = 'none'; }, 3000);
         }
 
-        // ── Files ────────────────────────────────────
-        function renderFiles() {
-            const adminNum = currentSettings.adminNumber || "";
-            const filesUrl = `https://supabase.com/dashboard/storage/buckets/saved_media`;
-            document.getElementById('files-url-list').innerHTML = `
-                <div>📁 Bucket: <strong>saved_media</strong></div>
-                <div>🔗 <a href="${filesUrl}" target="_blank">${filesUrl}</a></div>
-                <div style="margin-top:12px;font-size:0.9rem;color:var(--text-muted);">
-                    Files organized by phone number folder.<br/>
-                    Admin number (${adminNum || 'not set'}) sees all files.
-                </div>
-            `;
+        function addProvider() {
+            document.getElementById('provider-form').style.display = 'block';
+            document.getElementById('provider-type').value = 'openai';
+            document.getElementById('provider-name').value = '';
+            document.getElementById('provider-apikey').value = '';
+            document.getElementById('provider-model').value = '';
+            document.getElementById('provider-baseurl').value = '';
         }
 
-        // ── Init ─────────────────────────────────────
-        document.addEventListener('DOMContentLoaded', () => {
-            loadSettings();
-        });
+        function cancelProvider() {
+            document.getElementById('provider-form').style.display = 'none';
+        }
+
+        async function saveProvider() {
+            var prov = {
+                id: 'provider_' + Date.now(),
+                provider: document.getElementById('provider-type').value,
+                apiKey: document.getElementById('provider-apikey').value,
+                model: document.getElementById('provider-model').value,
+                baseUrl: document.getElementById('provider-baseurl').value || undefined
+            };
+            settings.aiProviders.push(prov);
+            await saveAll();
+            renderAll();
+            cancelProvider();
+        }
+
+        function deleteProvider(id) {
+            settings.aiProviders = settings.aiProviders.filter(function(p) { return p.id !== id; });
+            saveAll();
+            renderAll();
+        }
+
+        function renderRules() {
+            var list = document.getElementById('rules-list');
+            if (!settings.aiRules || settings.aiRules.length === 0) {
+                list.innerHTML = '<p style="color:#888;">No rules configured.</p>';
+                return;
+            }
+            list.innerHTML = settings.aiRules.map(function(r) {
+                return '<div style="background:#1a1d26;padding:10px;margin-bottom:10px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                    '<div><strong>' + (r.enabled ? '✅' : '❌') + '</strong> ' + escapeHtml(r.trigger).substring(0, 50) + (r.trigger.length > 50 ? '...' : '') +
+                    '<br><small style="color:#888;">Match: ' + r.matchType + ' | ' + escapeHtml(r.response).substring(0, 30) + '...</small></div>' +
+                    '<button class="secondary" style="padding:4px 8px;font-size:12px;" onclick="deleteRule(\'' + r.id + '\')">Delete</button>' +
+                    '</div>';
+            }).join('');
+        }
+
+        function addRule() {
+            document.getElementById('rule-form').style.display = 'block';
+            document.getElementById('rule-trigger').value = '';
+            document.getElementById('rule-response').value = '';
+            document.getElementById('rule-matchtype').value = 'contains';
+            document.getElementById('rule-enabled').checked = true;
+        }
+
+        function cancelRule() {
+            document.getElementById('rule-form').style.display = 'none';
+        }
+
+        async function saveRule() {
+            var r = {
+                id: 'rule_' + Date.now(),
+                trigger: document.getElementById('rule-trigger').value,
+                response: document.getElementById('rule-response').value,
+                matchType: document.getElementById('rule-matchtype').value,
+                enabled: document.getElementById('rule-enabled').checked,
+                createdAt: Date.now()
+            };
+            if (r.trigger && r.response) {
+                settings.aiRules.push(r);
+                await saveAll();
+                renderRules();
+                cancelRule();
+            }
+        }
+
+        function deleteRule(id) {
+            settings.aiRules = settings.aiRules.filter(function(r) { return r.id !== id; });
+            saveAll();
+            renderRules();
+        }
+
+        async function addSession() {
+            document.getElementById('session-form').style.display = 'block';
+        }
+
+        function cancelSession() {
+            document.getElementById('session-form').style.display = 'none';
+        }
+
+        async function checkSession(id) {
+            var r = await fetch('/api/sessions/' + id);
+            var data = await r.json();
+            return data.ok ? data.session : null;
+        }
+
+        async function waitForSocketReady(sessionId, maxWait) {
+            var start = Date.now();
+            while (Date.now() - start < (maxWait || 30000)) {
+                var session = await checkSession(sessionId);
+                if (session && (session.status === 'connecting' || session.status === 'qr')) {
+                    return true;
+                }
+                await new Promise(function(r) { setTimeout(r, 1000); });
+            }
+            return false;
+        }
+
+        async function createSession() {
+            var label = document.getElementById('session-label').value.trim();
+            var phone = document.getElementById('session-phone').value.replace(/\D/g, '');
+            if (!phone || phone.length < 7) {
+                document.getElementById('error').textContent = 'Please enter a valid phone number';
+                document.getElementById('error').style.display = 'block';
+                setTimeout(function() { document.getElementById('error').style.display = 'none'; }, 3000);
+                return;
+            }
+
+            var sessionId = 'user_' + phone;
+            try {
+                await fetch('/api/sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: sessionId, label: label || '+' + phone })
+                });
+
+                await waitForSocketReady(sessionId, 20000);
+
+                var code = null;
+                for (var attempt = 1; attempt <= 5; attempt++) {
+                    try {
+                        var r = await fetch('/api/sessions/' + sessionId + '/pairing', { method: 'POST' });
+                        var data = await r.json();
+                        if (data.ok) {
+                            code = data.code;
+                            break;
+                        }
+                    } catch (e) {
+                        // Network error - will retry
+                    }
+                    if (attempt < 5) {
+                        await new Promise(function(r) { setTimeout(r, 3000 * attempt); });
+                    }
+                }
+
+                if (code) {
+                    document.getElementById('session-form').style.display = 'none';
+                    document.getElementById('pairing-view').style.display = 'block';
+                    document.getElementById('pairing-code').textContent = code;
+                } else {
+                    document.getElementById('error').textContent = 'Pairing code not ready after 5 attempts. Check that WhatsApp connected and QR was scanned.';
+                    document.getElementById('error').style.display = 'block';
+                    setTimeout(function() { document.getElementById('error').style.display = 'none'; }, 5000);
+                }
+            } catch(e) {
+                document.getElementById('error').textContent = 'Failed to create session';
+                document.getElementById('error').style.display = 'block';
+                setTimeout(function() { document.getElementById('error').style.display = 'none'; }, 3000);
+            }
+        }
+
+        async function retryPairing() {
+            document.getElementById('pairing-view').style.display = 'none';
+            document.getElementById('session-form').style.display = 'block';
+        }
+
+        async function loadSessions() {
+            try {
+                var r = await fetch('/api/sessions');
+                var data = await r.json();
+                var list = document.getElementById('sessions');
+                var sessions = data.sessions || [];
+                if (!sessions.length) {
+                    list.innerHTML = '<p style="color:#888;">No sessions configured.</p>';
+                    return;
+                }
+
+                list.innerHTML = sessions.map(function(s) {
+                    var pairingBtn = s.status === 'qr' && s.pairingCode ?
+                        '<button class="secondary" style="margin-top:5px;padding:4px 8px;font-size:12px;" onclick="showSessionPairing(\'' + s.id + '\', \'' + s.pairingCode + '\')">' +
+                        '<div class="pairing-code" style="display:inline;font-size:16px;font-weight:bold;color:#00ff88;margin-right:8px;">' + s.pairingCode + '</div>Get Code</button>' : '';
+                    return '<div style="background:#1a1d26;padding:10px;margin-bottom:10px;border-radius:8px;">' +
+                        '<strong>' + escapeHtml(s.label || s.id) + '</strong> - <span class="status ' + (s.status === 'connected' ? 'connected' : (s.status === 'qr' ? 'qr' : 'disconnected')) + '">' + s.status + '</span>' +
+                        '<br><small>Phone: +' + (s.phoneNumber || 'unknown') + '</small>' +
+                        (pairingBtn) +
+                        '<br><button class="secondary" style="padding:4px 8px;font-size:12px;margin-top:5px;" onclick="deleteSession(\'' + s.id + '\')">Delete</button>' +
+                        '</div>';
+                }).join('');
+                window.allSessions = sessions;
+            } catch(e) {}
+        }
+
+        async function deleteSession(id) {
+            if (!confirm('Delete session ' + id + '?')) return;
+            await fetch('/api/sessions/' + id, { method: 'DELETE' });
+            await loadSessions();
+        }
+
+        async function showSessionPairing(sessionId, code) {
+            alert('Pairing code: ' + code + '\n\nEnter this in WhatsApp → Settings → Linked Devices → Link with Phone Number');
+        }
+
+        // Restore auth if exists
+        if (localStorage.getItem('admin-token')) {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('admin-screen').style.display = 'block';
+        }
+        loadSettings();
+        loadSessions();
     </script>
 </body>
 </html>

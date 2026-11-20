@@ -116,9 +116,9 @@ router.post("/settings/verify", (req: Request, res: Response) => {
   res.json({ ok: true, token });
 });
 
-// GET /api/settings
-router.get("/settings", requireSession, (_req, res) => {
-  res.json(loadSettings());
+// GET /api/settings (public - loads current settings for display)
+router.get("/settings", (_req, res) => {
+  res.json({ settings: loadSettings() });
 });
 
 // POST /api/settings
