@@ -106,18 +106,36 @@
 
             <div class="panel">
                 <div class="row">
-                    <h2 style="margin:0;">API providers <span class="sub">— add your OpenAI / Anthropic / Gemini keys</span></h2>
+                    <h2 style="margin:0;">API providers <span class="sub">— pool with automatic failover</span></h2>
                     <div class="spacer"></div>
-                    <button class="btn" onclick="openProviderModal()">+ Add provider</button>
+                    <button class="btn" data-owner-only onclick="openProviderModal()">+ Add provider</button>
                 </div>
+                <p class="muted" style="margin-top:10px;line-height:1.6;">
+                    Add every key you have — Groq, OpenRouter, Gemini, Mistral, Cohere, NVIDIA, ModelScope, DashScope, AI21, Ollama.
+                    When a provider errors or runs out of quota the bot silently rotates to the next one and sticks with whichever works.
+                    Admin (owner) only.
+                </p>
                 <div id="providers-list" style="margin-top:14px;"></div>
+            </div>
+
+            <div class="panel">
+                <div class="row">
+                    <h2 style="margin:0;">Contact memory <span class="sub">— what the AI remembers about each person</span></h2>
+                    <div class="spacer"></div>
+                    <button class="btn secondary sm" onclick="loadMemories()">Refresh</button>
+                </div>
+                <p class="muted" style="margin-top:10px;line-height:1.6;">
+                    Built automatically from your chats, per contact, and only for this bot account. The AI reads these notes
+                    before replying. Clear one and it starts fresh.
+                </p>
+                <div id="memory-list" style="margin-top:14px;"><div class="empty">Loading memory…</div></div>
             </div>
 
             <div class="panel">
                 <div class="row">
                     <h2 style="margin:0;">Reply rules <span class="sub">— instant canned answers (checked before AI)</span></h2>
                     <div class="spacer"></div>
-                    <button class="btn" onclick="openRuleModal()">+ Add rule</button>
+                    <button class="btn" data-owner-only onclick="openRuleModal()">+ Add rule</button>
                 </div>
                 <div id="rules-list" style="margin-top:14px;"></div>
             </div>
@@ -126,7 +144,7 @@
                 <div class="row">
                     <h2 style="margin:0;">AI personas <span class="sub">— call them by name in chat: "nora what is utc"</span></h2>
                     <div class="spacer"></div>
-                    <button class="btn" onclick="openPersonaModal()">+ Add persona</button>
+                    <button class="btn" data-owner-only onclick="openPersonaModal()">+ Add persona</button>
                 </div>
                 <div id="personas-list" style="margin-top:14px;"></div>
             </div>
@@ -138,7 +156,7 @@
                 <div class="row">
                     <h2 style="margin:0;">Per-contact auto-respond <span class="sub">— reply when a specific person says a trigger word</span></h2>
                     <div class="spacer"></div>
-                    <button class="btn" onclick="openAutoRuleModal()">+ Add rule</button>
+                    <button class="btn" data-owner-only onclick="openAutoRuleModal()">+ Add rule</button>
                 </div>
                 <p class="muted" style="margin-top:10px;line-height:1.6;">
                     Personal chats only. Use <code>{name}</code> in the reply for their WhatsApp name.
@@ -157,10 +175,14 @@
                     <input type="tel" id="admin-number" placeholder="e.g. 2348103077073" />
                 </div>
                 <div class="field">
+                    <label class="lbl">Public link <span class="muted">(used when people ask how to link their bot — e.g. https://your-app.onrender.com)</span></label>
+                    <input type="url" id="public-url" placeholder="https://your-app.onrender.com" />
+                </div>
+                <div class="field">
                     <label class="lbl">Who gets AI replies</label>
                     <select id="reply-mode">
+                        <option value="all">Everyone (anyone who texts the bot)</option>
                         <option value="only">Admin only</option>
-                        <option value="all">Everyone</option>
                     </select>
                 </div>
                 <button class="btn" onclick="saveGeneral()">Save</button>
@@ -175,7 +197,14 @@
                 <div class="row">
                     <h2 style="margin:0;">Custom commands <span class="sub">— type the prefix in any chat to get the reply</span></h2>
                     <div class="spacer"></div>
-                    <button class="btn" onclick="openCcModal()">+ Add command</button>
+                    <button class="btn" data-owner-only onclick="openCcModal()">+ Add command</button>
+                </div>
+                <div class="info-box" style="margin-top:12px;line-height:1.65;">
+                    <strong>How it works</strong><br />
+                    1. Click <em>+ Add command</em>. Give it a trigger that starts with a symbol — <code>.price</code>, <code>!rules</code>, <code>/menu2</code>.<br />
+                    2. Write the reply. Placeholders: <code>{name}</code> = sender's WhatsApp name, <code>{time}</code> = current UTC time.<br />
+                    3. Anyone texting the bot that exact prefix gets the reply. Test it by sending <code>.price</code> yourself.<br />
+                    Need the list in chat? Send <code>/commands</code>.
                 </div>
                 <div id="cc-list" style="margin-top:14px;"></div>
             </div>
@@ -201,27 +230,23 @@
             <h2 id="provider-modal-title">Add AI provider</h2>
             <div class="field">
                 <label class="lbl">Provider type</label>
-                <select id="pv-type" onchange="toggleProviderFields()">
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic (Claude)</option>
-                    <option value="gemini">Google Gemini</option>
-                    <option value="custom">Custom (OpenAI-compatible)</option>
-                </select>
+                <select id="pv-type" onchange="onProviderTypeChange(true)"></select>
             </div>
+            <div class="info-box" id="pv-hint" style="line-height:1.55;"></div>
             <div class="field">
                 <label class="lbl">Label</label>
-                <input type="text" id="pv-label" placeholder="e.g. My OpenAI key" />
+                <input type="text" id="pv-label" placeholder="e.g. My Groq key" />
             </div>
             <div class="field">
-                <label class="lbl">API key</label>
-                <input type="password" id="pv-key" placeholder="sk-… / AIza… / key" />
+                <label class="lbl">API key <span class="muted" id="pv-key-req">(required)</span></label>
+                <input type="password" id="pv-key" placeholder="sk-… / gsk_… / key" />
             </div>
             <div class="field">
                 <label class="lbl">Model</label>
-                <input type="text" id="pv-model" placeholder="gpt-4o-mini / claude-3-5-haiku / gemini-2.5-flash" />
+                <input type="text" id="pv-model" placeholder="model id for this provider" />
             </div>
-            <div class="field hidden" id="pv-baseurl-wrap">
-                <label class="lbl">Base URL</label>
+            <div class="field" id="pv-baseurl-wrap">
+                <label class="lbl">Base URL <span class="muted" id="pv-baseurl-hint"></span></label>
                 <input type="text" id="pv-baseurl" placeholder="https://api.example.com/v1" />
             </div>
             <input type="hidden" id="pv-id" />
@@ -357,6 +382,23 @@
         let pendingSessionId = null;
         let pollTimer = null;
         let me = null;
+        let myIsOwner = false;
+        let memories = [];
+
+        const PRESETS = [
+            { kind: 'ai21', label: 'AI21 Labs', baseUrl: 'https://api.ai21.com/studio/v1', model: 'jamba-mini', key: true, hint: 'Get a key at studio.ai21.com' },
+            { kind: 'cohere', label: 'Cohere', baseUrl: 'https://api.cohere.com/compatibility/v1', model: 'command-r7b-12-2024', key: true, hint: 'dashboard.cohere.com → API keys' },
+            { kind: 'dashscope', label: 'DashScope (Qwen)', baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', key: true, hint: 'dashscope.console.aliyun.com → API key' },
+            { kind: 'modelscope', label: 'ModelScope', baseUrl: 'https://api-inference.modelscope.cn/v1', model: 'Qwen/Qwen2.5-72B-Instruct', key: true, hint: 'modelscope.cn → access token' },
+            { kind: 'nvidia', label: 'NVIDIA NIM', baseUrl: 'https://integrate.api.nvidia.com/v1', model: 'meta/llama-3.3-70b-instruct', key: true, hint: 'build.nvidia.com → nvapi-… key' },
+            { kind: 'ollama', label: 'Ollama (local / tunnel)', baseUrl: 'http://127.0.0.1:11434/v1', model: 'llama3.2', key: false, hint: 'Run on your PC, expose it with cloudflared/ngrok, then paste the public URL here. No key needed.' },
+            { kind: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct:free', key: true, hint: 'openrouter.ai/keys' },
+            { kind: 'gemini', label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-2.5-flash', key: true, hint: 'aistudio.google.com → API key' },
+            { kind: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', key: true, hint: 'console.groq.com/keys' },
+            { kind: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1', model: 'mistral-small-latest', key: true, hint: 'console.mistral.ai → API keys' },
+            { kind: 'custom', label: 'Custom (OpenAI-compatible)', baseUrl: '', model: '', key: false, hint: 'Any OpenAI-compatible endpoint (FreeLLM, vLLM, LM Studio). Paste its /v1 URL — for a laptop server use a tunnel URL, not localhost.' },
+        ];
+        function presetOf(kind) { return PRESETS.find(p => p.kind === kind); }
 
         // ── helpers ──────────────────────────────────────────────
         function esc(s) {
@@ -399,7 +441,12 @@
 
             if (token) {
                 const r = await api('/settings');
-                if (r.ok && r.data) { settings = r.data; enterApp(); return; }
+                if (r.ok && r.data) {
+                    settings = r.data;
+                    const who = await api('/settings/me').catch(() => null);
+                    myIsOwner = !!who?.data?.isOwner;
+                    enterApp(); return;
+                }
                 token = ''; localStorage.removeItem('wabot_token');
             }
             showAuth();
@@ -413,6 +460,7 @@
             const r = await api('/settings/pin-login', { method: 'POST', body: JSON.stringify({ phone, pin }) });
             if (r.data?.ok) {
                 token = r.data.token; localStorage.setItem('wabot_token', token);
+                myIsOwner = !!r.data.isOwner;
                 const s = await api('/settings');
                 settings = s.data; enterApp();
             } else {
@@ -428,6 +476,7 @@
             const r = await api('/settings/register', { method: 'POST', body: JSON.stringify({ phone, pin }) });
             if (r.data?.ok) {
                 token = r.data.token; localStorage.setItem('wabot_token', token);
+                myIsOwner = !!r.data.isOwner;
                 const s = await api('/settings');
                 settings = s.data; enterApp();
             } else {
@@ -450,8 +499,14 @@
             refreshSessions();
             loadAutoRules();
             loadCustomCommands();
+            loadMemories();
+            applyOwnerUI();
             if (pollTimer) clearInterval(pollTimer);
             pollTimer = setInterval(refreshSessions, 2500);
+        }
+
+        function applyOwnerUI() {
+            document.querySelectorAll('[data-owner-only]').forEach(el => el.classList.toggle('hidden', !myIsOwner));
         }
 
         const TAB_TITLES = {
@@ -467,6 +522,7 @@
             ['sessions', 'ai', 'autorespond', 'settings', 'files'].forEach(n => {
                 document.getElementById('tab-' + n).classList.toggle('hidden', n !== name);
             });
+            if (name === 'ai') loadMemories();
             const meta = TAB_TITLES[name];
             if (meta) {
                 document.getElementById('page-title').textContent = meta[0];
@@ -574,15 +630,17 @@
             if (!provs.length) { list.innerHTML = '<div class="empty">No providers yet. Add your first API key above.</div>'; return; }
             list.innerHTML = provs.map(p => {
                 const masked = p.apiKey ? (p.apiKey.slice(0, 4) + '…' + p.apiKey.slice(-4)) : '(no key)';
+                const preset = presetOf(p.provider);
                 return `<div class="list-item">
                     <div class="grow">
-                        <div class="title">${esc(p.label || p.provider)} <span class="badge">${esc(p.provider)}</span></div>
+                        <div class="title">${esc(p.label || preset?.label || p.provider)} <span class="badge">${esc(preset?.label || p.provider)}</span></div>
                         <div class="desc">${esc(p.model)} · key ${esc(masked)}${p.id === settings.defaultAiProvider ? ' · <strong>default</strong>' : ''}</div>
                     </div>
-                    <button class="btn secondary sm" onclick="openProviderModal('${esc(p.id)}')">Edit</button>
-                    <button class="btn danger sm" onclick="deleteProvider('${esc(p.id)}')">Delete</button>
+                    <button class="btn secondary sm" data-owner-only onclick="openProviderModal('${esc(p.id)}')">Edit</button>
+                    <button class="btn danger sm" data-owner-only onclick="deleteProvider('${esc(p.id)}')">Delete</button>
                 </div>`;
             }).join('');
+            applyOwnerUI();
         }
 
         function renderRules() {
@@ -594,40 +652,68 @@
                     <div class="title">“${esc(r.trigger)}” → ${esc(r.response)}</div>
                     <div class="desc">${esc(r.matchType)} · ${r.enabled ? 'enabled' : 'disabled'}</div>
                 </div>
-                <button class="btn secondary sm" onclick="openRuleModal('${esc(r.id)}')">Edit</button>
-                <button class="btn danger sm" onclick="deleteRule('${esc(r.id)}')">Delete</button>
+                <button class="btn secondary sm" data-owner-only onclick="openRuleModal('${esc(r.id)}')">Edit</button>
+                <button class="btn danger sm" data-owner-only onclick="deleteRule('${esc(r.id)}')">Delete</button>
             </div>`).join('');
+            applyOwnerUI();
         }
 
-        function toggleProviderFields() {
-            const t = document.getElementById('pv-type').value;
-            document.getElementById('pv-baseurl-wrap').classList.toggle('hidden', t !== 'custom');
+        function populateProviderSelect() {
+            const sel = document.getElementById('pv-type');
+            sel.innerHTML = PRESETS.map(p => `<option value="${p.kind}">${esc(p.label)}</option>`).join('');
+        }
+
+        /** Fill preset defaults when the type changes (keep a filled base URL if the user typed one). */
+        function onProviderTypeChange(fillDefaults) {
+            const kind = document.getElementById('pv-type').value;
+            const preset = presetOf(kind);
+            const hint = document.getElementById('pv-hint');
+            const baseWrap = document.getElementById('pv-baseurl-wrap');
+            const baseInput = document.getElementById('pv-baseurl');
+            const modelInput = document.getElementById('pv-model');
+            const keyReq = document.getElementById('pv-key-req');
+            if (preset) hint.textContent = preset.hint;
+            baseWrap.classList.toggle('hidden', !['custom', 'ollama'].includes(kind));
+            document.getElementById('pv-baseurl-hint').textContent = kind === 'custom' ? '(endpoint up to /v1)' : '';
+            keyReq.textContent = preset?.key === false ? '(optional for this provider)' : '(required)';
+            if (fillDefaults && preset) {
+                if (!baseInput.value || presetOf(providerKindOfBase(baseInput.value))) baseInput.value = preset.baseUrl;
+                modelInput.value = preset.model;
+                if (!document.getElementById('pv-label').value) document.getElementById('pv-label').value = preset.label;
+            }
+        }
+        function providerKindOfBase(base) {
+            const p = PRESETS.find(x => x.baseUrl && base && base.startsWith(x.baseUrl));
+            return p ? p.kind : null;
         }
 
         function openProviderModal(id) {
             const p = id ? (settings.aiProviders || []).find(x => x.id === id) : null;
+            populateProviderSelect();
             document.getElementById('provider-modal-title').textContent = p ? 'Edit provider' : 'Add AI provider';
-            document.getElementById('pv-type').value = p?.provider || 'openai';
+            document.getElementById('pv-type').value = p?.provider || 'groq';
             document.getElementById('pv-label').value = p?.label || '';
             document.getElementById('pv-key').value = p?.apiKey || '';
             document.getElementById('pv-model').value = p?.model || '';
             document.getElementById('pv-baseurl').value = p?.baseUrl || '';
             document.getElementById('pv-id').value = p?.id || '';
-            toggleProviderFields();
+            onProviderTypeChange(!p);
             openModal('provider-modal');
         }
 
         async function saveProvider() {
             const id = document.getElementById('pv-id').value;
+            const kind = document.getElementById('pv-type').value;
+            const preset = presetOf(kind);
             const entry = {
                 id: id || 'provider_' + Date.now(),
-                provider: document.getElementById('pv-type').value,
+                provider: kind,
                 label: document.getElementById('pv-label').value.trim(),
                 apiKey: document.getElementById('pv-key').value.trim(),
                 model: document.getElementById('pv-model').value.trim(),
-                baseUrl: document.getElementById('pv-baseurl').value.trim() || undefined,
+                baseUrl: document.getElementById('pv-baseurl').value.trim() || preset?.baseUrl || undefined,
             };
-            if (!entry.apiKey) return toast('API key is required', true);
+            if (preset?.key !== false && !entry.apiKey) return toast('API key is required for this provider', true);
             if (!entry.model) return toast('Model is required', true);
 
             settings.aiProviders = settings.aiProviders || [];
@@ -703,10 +789,11 @@
                         <div class="title">${esc(p.name)} <span class="badge">persona</span></div>
                         <div class="desc">${esc(short)} · ${prov ? esc(prov.label || prov.provider) : 'default provider'} · chat: "${esc(p.name)} …"</div>
                     </div>
-                    <button class="btn secondary sm" onclick="openPersonaModal('${esc(p.id)}')">Edit</button>
-                    <button class="btn danger sm" onclick="deletePersona('${esc(p.id)}')">Delete</button>
+                    <button class="btn secondary sm" data-owner-only onclick="openPersonaModal('${esc(p.id)}')">Edit</button>
+                    <button class="btn danger sm" data-owner-only onclick="deletePersona('${esc(p.id)}')">Delete</button>
                 </div>`;
             }).join('');
+            applyOwnerUI();
         }
 
         function openPersonaModal(id) {
@@ -763,9 +850,10 @@
                     <div class="title">+${esc(r.contact)} — ${esc((r.triggers || []).join(', '))}</div>
                     <div class="desc">${r.instructions ? 'AI: ' + esc(r.instructions) : esc(r.reply)} · ${r.enabled ? 'enabled' : 'disabled'}</div>
                 </div>
-                <button class="btn secondary sm" onclick="openAutoRuleModal('${esc(r.id)}')">Edit</button>
-                <button class="btn danger sm" onclick="deleteAutoRule('${esc(r.id)}')">Delete</button>
+                <button class="btn secondary sm" data-owner-only onclick="openAutoRuleModal('${esc(r.id)}')">Edit</button>
+                <button class="btn danger sm" data-owner-only onclick="deleteAutoRule('${esc(r.id)}')">Delete</button>
             </div>`).join('');
+            applyOwnerUI();
         }
 
         function openAutoRuleModal(id) {
@@ -824,9 +912,10 @@
                     <div class="title"><code>${esc(c.prefix)}</code>${c.description ? ' — ' + esc(c.description) : ''}</div>
                     <div class="desc">${esc((c.response || '').slice(0, 120))}</div>
                 </div>
-                <button class="btn secondary sm" onclick="openCcModal(${i})">Edit</button>
-                <button class="btn danger sm" onclick="deleteCustomCommand(${i})">Delete</button>
+                <button class="btn secondary sm" data-owner-only onclick="openCcModal(${i})">Edit</button>
+                <button class="btn danger sm" data-owner-only onclick="deleteCustomCommand(${i})">Delete</button>
             </div>`).join('');
+            applyOwnerUI();
         }
 
         function openCcModal(index) {
@@ -865,10 +954,61 @@
             return true;
         }
 
+        // ── contact memory ───────────────────────────────────────
+        async function loadMemories() {
+            const r = await api('/memory');
+            if (!r.ok) return;
+            memories = r.data?.memories || [];
+            renderMemories();
+        }
+
+        function renderMemories() {
+            const list = document.getElementById('memory-list');
+            if (!list) return;
+            if (!memories.length) {
+                list.innerHTML = '<div class="empty">Nothing learned yet — the bot starts remembering after a few messages with someone.</div>';
+                return;
+            }
+            list.innerHTML = memories.map(m => `
+                <div class="list-item">
+                    <div class="grow">
+                        <div class="title">+${esc(m.contact)} <span class="badge">${m.facts.length} facts</span></div>
+                        <div class="desc">${m.summary ? esc(m.summary) : '<em>no summary yet</em>'}</div>
+                        ${m.facts.length ? `<div class="desc">${m.facts.map(f => '• ' + esc(f)).join('<br />')}</div>` : ''}
+                        <div class="desc">${m.messageCount} messages · updated ${new Date(m.updatedAt).toLocaleString()}</div>
+                    </div>
+                    <button class="btn secondary sm" onclick="editMemory('${esc(m.contact)}')">Edit</button>
+                    <button class="btn danger sm" onclick="clearMemory('${esc(m.contact)}')">Clear</button>
+                </div>`).join('');
+        }
+
+        async function editMemory(contact) {
+            const m = memories.find(x => String(x.contact) === String(contact));
+            if (!m) return;
+            const input = prompt('Facts about +' + contact + ' (one per line):', (m.facts || []).join('\n'));
+            if (input === null) return;
+            const r = await api('/memory/' + encodeURIComponent(contact), {
+                method: 'POST',
+                body: JSON.stringify({ facts: input.split('\n').map(f => f.trim()).filter(Boolean), summary: m.summary }),
+            });
+            if (!r.ok) return toast(r.data?.error || 'Save failed', true);
+            await loadMemories();
+            toast('Memory updated');
+        }
+
+        async function clearMemory(contact) {
+            if (!confirm('Forget everything about +' + contact + '?')) return;
+            const r = await api('/memory/' + encodeURIComponent(contact), { method: 'DELETE' });
+            if (!r.ok) return toast(r.data?.error || 'Delete failed', true);
+            await loadMemories();
+            toast('Memory cleared');
+        }
+
         // ── general / features ───────────────────────────────────
         function renderGeneral() {
             document.getElementById('admin-number').value = settings.adminNumber || '';
-            document.getElementById('reply-mode').value = settings.features?.replyMode || 'only';
+            document.getElementById('public-url').value = settings.publicUrl || '';
+            document.getElementById('reply-mode').value = settings.features?.replyMode || 'all';
         }
 
         const FEATURE_GROUPS = [
@@ -899,6 +1039,7 @@
                 hint: 'Moderation and smart replies',
                 keys: {
                     aiChat: '🤖 AI chat replies',
+                    memory: '🧠 Contact memory (learn from chats)',
                     antiLink: '🚫 Anti-link (remove links)',
                 },
             },
@@ -933,6 +1074,7 @@
 
         async function saveGeneral() {
             settings.adminNumber = document.getElementById('admin-number').value.replace(/\D/g, '');
+            settings.publicUrl = document.getElementById('public-url').value.trim();
             settings.features = settings.features || {};
             settings.features.replyMode = document.getElementById('reply-mode').value;
             if (await persist()) toast('Settings saved');

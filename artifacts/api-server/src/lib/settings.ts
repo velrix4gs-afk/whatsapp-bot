@@ -22,7 +22,7 @@ function getPool(): pg.Pool | null {
   return _pool;
 }
 
-async function dbQuery(sql: string, params: unknown[] = []): Promise<pg.QueryResult | null> {
+export async function dbQuery(sql: string, params: unknown[] = []): Promise<pg.QueryResult | null> {
   try {
     const pool = getPool();
     if (!pool) return null;
@@ -51,13 +51,46 @@ export interface AiRule {
   createdAt: number;
 }
 
+export type AiProviderKind =
+  | "ai21" | "cohere" | "dashscope" | "modelscope" | "nvidia"
+  | "ollama" | "openrouter" | "gemini" | "groq" | "mistral"
+  | "custom" | "openai" | "anthropic";
+
 export interface AiProviderConfig {
   id: string;
-  provider: "openai" | "anthropic" | "gemini" | "custom";
+  provider: AiProviderKind;
   apiKey: string;
   model: string;
   baseUrl?: string;
   label?: string;
+}
+
+export interface ProviderPreset {
+  label: string;
+  kind: AiProviderKind;
+  baseUrl: string;
+  defaultModel: string;
+  requiresKey: boolean;
+  hint: string;
+}
+
+/** Every provider NovaBot supports. All but gemini/anthropic speak the OpenAI chat-completions dialect. */
+export const PROVIDER_PRESETS: ProviderPreset[] = [
+  { kind: "ai21", label: "AI21 Labs", baseUrl: "https://api.ai21.com/studio/v1", defaultModel: "jamba-mini", requiresKey: true, hint: "Get a key at studio.ai21.com" },
+  { kind: "cohere", label: "Cohere", baseUrl: "https://api.cohere.com/compatibility/v1", defaultModel: "command-r7b-12-2024", requiresKey: true, hint: "dashboard.cohere.com → API keys" },
+  { kind: "dashscope", label: "DashScope (Alibaba Qwen)", baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-plus", requiresKey: true, hint: "dashscope.console.aliyun.com → API key" },
+  { kind: "modelscope", label: "ModelScope", baseUrl: "https://api-inference.modelscope.cn/v1", defaultModel: "Qwen/Qwen2.5-72B-Instruct", requiresKey: true, hint: "modelscope.cn → access token" },
+  { kind: "nvidia", label: "NVIDIA NIM", baseUrl: "https://integrate.api.nvidia.com/v1", defaultModel: "meta/llama-3.3-70b-instruct", requiresKey: true, hint: "build.nvidia.com → nvapi-… key" },
+  { kind: "ollama", label: "Ollama (local / tunnel)", baseUrl: "http://127.0.0.1:11434/v1", defaultModel: "llama3.2", requiresKey: false, hint: "Run on your PC, expose with cloudflared/ngrok, paste the public URL" },
+  { kind: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", defaultModel: "meta-llama/llama-3.3-70b-instruct:free", requiresKey: true, hint: "openrouter.ai/keys" },
+  { kind: "gemini", label: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", defaultModel: "gemini-2.5-flash", requiresKey: true, hint: "aistudio.google.com → API key" },
+  { kind: "groq", label: "Groq", baseUrl: "https://api.groq.com/openai/v1", defaultModel: "llama-3.3-70b-versatile", requiresKey: true, hint: "console.groq.com/keys" },
+  { kind: "mistral", label: "Mistral", baseUrl: "https://api.mistral.ai/v1", defaultModel: "mistral-small-latest", requiresKey: true, hint: "console.mistral.ai → API keys" },
+  { kind: "custom", label: "Custom (OpenAI-compatible)", baseUrl: "", defaultModel: "", requiresKey: false, hint: "Any OpenAI-compatible endpoint (FreeLLM, vLLM, LM Studio…)" },
+];
+
+export function providerPreset(kind: string): ProviderPreset | undefined {
+  return PROVIDER_PRESETS.find(p => p.kind === kind);
 }
 
 export interface AiPersona {
@@ -80,6 +113,7 @@ export interface BotFeatures {
   aiChat: boolean;
   customCommands: boolean;
   autoPresence: boolean;
+  memory: boolean;
   replyMode: "only" | "all";
 }
 
@@ -96,6 +130,7 @@ export interface BotSettings {
   aiRules: AiRule[];
   defaultAiProvider: string;
   personas: AiPersona[];
+  publicUrl: string;
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -114,7 +149,8 @@ export const DEFAULT_SETTINGS: BotSettings = {
     aiChat: true,
     customCommands: true,
     autoPresence: true,
-    replyMode: "only",
+    memory: true,
+    replyMode: "all",
   },
   reactionEmojis: [
     "❤️", "🔥", "😍", "🥰", "😂", "👏", "🎉", "💯", "✨", "😊",
@@ -130,6 +166,7 @@ export const DEFAULT_SETTINGS: BotSettings = {
   aiRules: [],
   defaultAiProvider: "",
   personas: [],
+  publicUrl: "",
 };
 
 // ── Settings persistence ──────────────────────────────────────────────────────
@@ -190,6 +227,22 @@ export function applySettings(s: BotSettings): void {
 export function getActiveAiProvider(s: BotSettings): AiProviderConfig | null {
   if (!s.aiProviders?.length) return null;
   return s.aiProviders.find(p => p.id === s.defaultAiProvider) ?? s.aiProviders[0];
+}
+
+/**
+ * Ordered failover pool: preferred provider first, then the default, then the rest.
+ * callAiWithPool() walks this list and silently switches on failure.
+ */
+export function getProviderPool(s: BotSettings, preferredId?: string): AiProviderConfig[] {
+  const all = (s.aiProviders ?? []).filter(p => p?.id);
+  const pool: AiProviderConfig[] = [];
+  const push = (p?: AiProviderConfig | null) => {
+    if (p && !pool.some(x => x.id === p.id)) pool.push(p);
+  };
+  if (preferredId) push(all.find(p => p.id === preferredId));
+  push(all.find(p => p.id === s.defaultAiProvider));
+  for (const p of all) push(p);
+  return pool;
 }
 
 /** Find a persona by name (case-insensitive). */
@@ -411,7 +464,7 @@ export async function verifyPinAndCreateSession(phone: string, pin: string): Pro
     "INSERT INTO bot_session_tokens (token, phone, expires_at) VALUES ($1, $2, $3) ON CONFLICT (token) DO UPDATE SET phone=$2, expires_at=$3",
     [token, normalized, Date.now() + 7 * 24 * 60 * 60_000]
   );
-  sessionStore.set(token, { phone: normalized, expiresAt: Date.now() + 7 * 24 * 60 * 60_000 });
+  sessionStore.set(token, { phone: normalized, isOwner: user.isOwner, expiresAt: Date.now() + 7 * 24 * 60 * 60_000 });
   return { token, isOwner: user.isOwner, phone: normalized };
 }
 
@@ -431,8 +484,13 @@ export function createOtp(phone: string): string {
 
 // ── Session store (in-memory write-through to DB) ─────────────────────────────
 
-interface Session { phone: string; expiresAt: number }
+export interface Session { phone: string; isOwner: boolean; expiresAt: number }
 const sessionStore = new Map<string, Session>();
+
+export function isOwnerPhone(phone: string): boolean {
+  const normalized = normalizePhone(phone);
+  return (fileGetUser(normalized) ?? null)?.isOwner === true;
+}
 
 export async function loadSessionsFromDb(): Promise<void> {
   const r = await dbQuery("DELETE FROM bot_session_tokens WHERE expires_at < $1; SELECT token, phone, expires_at FROM bot_session_tokens", [Date.now()]);
@@ -440,7 +498,7 @@ export async function loadSessionsFromDb(): Promise<void> {
   const r2 = await dbQuery("SELECT token, phone, expires_at FROM bot_session_tokens WHERE expires_at > $1", [Date.now()]);
   if (r2?.rows) {
     for (const row of r2.rows as { token: string; phone: string; expires_at: string }[]) {
-      sessionStore.set(row.token, { phone: row.phone, expiresAt: Number(row.expires_at) });
+      sessionStore.set(row.token, { phone: row.phone, isOwner: isOwnerPhone(row.phone), expiresAt: Number(row.expires_at) });
     }
   }
   void r; // silence unused warning
@@ -451,7 +509,7 @@ export function verifyOtpAndCreateSession(phone: string, code: string): string |
   if (!entry || entry.code !== code || Date.now() > entry.expiresAt) { otpStore.delete(phone); return null; }
   otpStore.delete(phone);
   const token = crypto.randomBytes(32).toString("hex");
-  sessionStore.set(token, { phone, expiresAt: Date.now() + 24 * 60 * 60_000 });
+  sessionStore.set(token, { phone, isOwner: isOwnerPhone(phone), expiresAt: Date.now() + 24 * 60 * 60_000 });
   return token;
 }
 

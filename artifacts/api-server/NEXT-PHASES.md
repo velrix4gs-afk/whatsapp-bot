@@ -70,6 +70,32 @@ Handoff doc. `artifacts/api-server` is the only service that matters at runtime 
 - Settings features are grouped into **Media & downloads / Engagement / Safety & AI**.
 - `my-files` now renders real thumbnails (the API returns a `type` field derived from MIME or extension).
 
+### Phase 6 — provider pool, human chat, memory (latest)
+- Providers: AI21 Labs, Cohere, DashScope, ModelScope, NVIDIA NIM, Ollama (local/tunnel), OpenRouter, Gemini, Groq,
+  Mistral, plus Custom (OpenAI-compatible). Presets auto-fill base URL + model in the admin modal; only `ollama`/`custom`
+  allow a blank API key. All but Gemini/Anthropic use the OpenAI chat-completions dialect.
+- `callAiWithPool()` — sticky failover: preferred → last working → default → rest. Any provider error/quota/timeout
+  rotates silently to the next; the working provider is remembered for the next message.
+- Replies are always short: system prompt rule, `max_tokens` 220 and `trimReply()` clamp to ~450 chars.
+  Personas join only when called by name and chat casually (jokes, flow); "enough"/"stop" makes them leave.
+  In groups the AI only answers when mentioned or invited with "ai …".
+- Status auto-like now also marks the status as viewed (read receipt + presence to `status@broadcast`).
+- Everyone can use the AI by default (`replyMode: "all"`); "Admin only" is still available in Settings.
+- Contact memory: `src/lib/memory.ts` — per linked bot (`session_id`) and per contact. Stored in Postgres
+  `bot_contact_memory` (auto-created) with a file fallback at `data/sessions/<session>/memory.json`.
+  Inbound personal-chat messages feed a rolling transcript; every 6 messages the pool summarises it into facts
+  (max 15) that are injected into the AI prompt. Admin → AI → Contact memory lets the owner view/edit/clear notes.
+  Each bot user only sees their own session's memory; provider keys and bot-wide settings are owner-only.
+- `publicUrl` setting: used for "give me the link" answers, `/files` and media captions. Injected into the AI prompt
+  together with the admin number and the owner's last activity. Activity is tracked from both incoming and outgoing
+  (fromMe) messages, so "is Velrix online?" answers "looks online right now" when the account was active in the last 5 min.
+- `/commands` (or `/cc`) lists the bot's custom commands in chat; the admin panel explains how to create one.
+
+#### Local FreeLLM on your laptop
+Render can't reach `localhost`. Run freellmapi on the PC, expose it with a tunnel (`cloudflared tunnel --url
+http://localhost:PORT` or `ngrok http PORT`), then add a **Custom (OpenAI-compatible)** provider with the tunnel URL +
+`/v1` and the model name your app serves. No API key needed if your app has none. Same pattern works for Ollama.
+
 ## Ideas / not scheduled
 - Website read-only view of per-chat toggles.
 - Persona/auto-respond management inside the Telegram bot.

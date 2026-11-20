@@ -15,11 +15,12 @@ import pino from "pino";
 import sharp from "sharp";
 import { createClient } from "@supabase/supabase-js";
 import ws from "ws";
-import { loadSettings, getActiveAiProvider, getPersona, getPersonaProvider, type BotSettings } from "./lib/settings";
-import { callAiProvider, firstMatchingRule } from "./lib/ai";
+import { loadSettings, getPersona, getPersonaProvider, type BotSettings } from "./lib/settings";
+import { callAiWithPool, firstMatchingRule, trimReply } from "./lib/ai";
 import { getChatToggles, setChatToggle } from "./lib/chat-settings";
 import { getActiveSession, startSession, appendToSession, endSession, isStopMessage } from "./lib/ai-sessions";
 import { listAutoRules, matchAutoRule } from "./lib/auto-respond";
+import { appendTurn, getMemory, learnIfNeeded, memoryPromptBlock } from "./lib/memory";
 
 const SESSION_ID = process.env.WORKER_SESSION_ID || "";
 const PAIRING_PHONE = process.env.WORKER_PHONE || "";
@@ -170,7 +171,7 @@ async function handleViewOnce(msg: any, chatJid: string) {
         const ext = mimeToExt(extracted.media.mimetype);
         const success = await saveToSupabase(buffer, `vo_${Date.now()}.${ext}`, extracted.media.mimetype ?? "application/octet-stream");
 
-        const webLink = `${process.env.PUBLIC_URL}/my-files`;
+        const webLink = `${publicLink()}/my-files`;
         const caption = `🔓 *View-once ${extracted.type}* (auto-saved)\nFrom: +${chatJid.split("@")[0]}\n\n📁 View all files: ${webLink}` + (success ? "" : "\n_⚠️ Cloud upload failed_");
 
         if (extracted.type === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
@@ -192,7 +193,7 @@ async function handleReaction(msg: any) {
         const ext = mimeToExt(cached.mediaMsg.mimetype);
         await saveToSupabase(buffer, `vo_react_${Date.now()}.${ext}`, cached.mediaMsg.mimetype ?? "application/octet-stream");
 
-        const webLink = `${process.env.PUBLIC_URL}/my-files`;
+        const webLink = `${publicLink()}/my-files`;
         const caption = `🔓 *View-once ${cached.mediaType}* (via reaction)\nFrom: +${cached.senderJid.split("@")[0]}\n\n📁 View: ${webLink}`;
 
         const ownerJid = getOwnerJid()!;
@@ -218,7 +219,7 @@ async function handleSaveStatus(msg: any, chatJid: string) {
         await sock.sendMessage(chatJid, { text: "✅ Status saved" });
         const ownerJid = getOwnerJid();
         if (ownerJid) {
-            const webLink = `${process.env.PUBLIC_URL}/my-files`;
+            const webLink = `${publicLink()}/my-files`;
             const posterNum = ctx.participant?.split("@")[0] || "unknown";
             const caption = `🔓 *Status ${type}*\nFrom: +${posterNum}\n\n📁 View: ${webLink}`;
             if (type === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
@@ -236,7 +237,7 @@ async function handleSavePP(msg: any, chatJid: string, args: string[]) {
         const buffer = Buffer.from(await (await fetch(pp)).arrayBuffer());
         await saveToSupabase(buffer, `pp_${targetJid.split("@")[0]}_${Date.now()}.jpg`, "image/jpeg");
 
-        const webLink = `${process.env.PUBLIC_URL}/my-files`;
+        const webLink = `${publicLink()}/my-files`;
         await sock.sendMessage(chatJid, { text: `✅ Profile pic saved\n📁 View: ${webLink}` });
     } catch (e) { log(`SavePP failed: ${e instanceof Error ? e.message : String(e)}`); }
 }
@@ -253,7 +254,7 @@ async function handleVv(msg: any, chatJid: string) {
         const ext = mimeToExt(media.mimetype);
         await saveToSupabase(buffer, `vv_${Date.now()}.${ext}`, media.mimetype ?? "application/octet-stream");
 
-        const webLink = `${process.env.PUBLIC_URL}/my-files`;
+        const webLink = `${publicLink()}/my-files`;
         const caption = `🔓 *View-once ${type} (.vv)*\n\n📁 View: ${webLink}`;
         const ownerJid = getOwnerJid()!;
         if (type === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
@@ -278,6 +279,12 @@ async function handleStatusReaction(msg: any) {
     if (chatJid !== "status@broadcast" || isFromMe(msg)) return;
     const s = settings();
     if (!s.features?.autoReact) return;
+
+    // Mark the status as viewed so the poster sees the blue tick, even when the
+    // reaction itself fails (reactions alone don't always register a view).
+    try { await sock.readMessages([msg.key]); } catch { /* older Baileys builds */ }
+    try { await sock.sendPresenceUpdate("available", "status@broadcast"); } catch { }
+
     const pool = s.reactionEmojis?.length ? s.reactionEmojis : ["❤️", "🔥", "💯"];
     const emoji = pool[Math.floor(Math.random() * pool.length)];
     try {
@@ -303,6 +310,11 @@ function buildMenu(chatJid: string): string {
  ▸ /ai/<name> <question> — use a persona
  ▸ <name> <question> — call a persona by name
  ▸ say "enough" — end the persona chat
+ ▸ anyone can ask — the bot answers like a person
+
+*⌨️ CUSTOM COMMANDS*
+ ▸ /commands — list this bot's commands
+ ▸ create them in the admin panel → Settings
 
 *🛠 TOOLS*
  ▸ /vv — save replied view-once
@@ -316,6 +328,21 @@ _Powered by NovaBot_`;
 }
 
 const CUSTOM_CMDS_FILE = path.join(process.cwd(), "data", "custom-commands.json");
+
+function customCommandList(): string {
+    try {
+        const cmds = fs.existsSync(CUSTOM_CMDS_FILE) ? JSON.parse(fs.readFileSync(CUSTOM_CMDS_FILE, "utf8")) : [];
+        if (!Array.isArray(cmds) || !cmds.length) {
+            return "⌨️ *Custom commands*\n\nNone yet. Create one in the admin panel → Settings → Custom commands.\nExample: trigger `.price`, reply \"Our plans start at 5k\".";
+        }
+        const lines = cmds
+            .filter((c: any) => c?.prefix && c?.response)
+            .map((c: any) => ` ▸ ${c.prefix}${c.description ? ` — ${c.description}` : ""}`);
+        return `⌨️ *Custom commands*\n\n${lines.join("\n")}\n\nType any of them to get the reply.`;
+    } catch {
+        return "⌨️ No custom commands yet.";
+    }
+}
 
 function findCustomCommand(text: string): { prefix: string; response: string } | null {
     try {
@@ -355,33 +382,132 @@ function isOwnerSender(msg: any): boolean {
     return !!admin && senderDigits(msg) === admin;
 }
 
-async function handleAiQuestion(chatJid: string, question: string, personaName?: string, join = false) {
+/** Public web link for this deployment (used when people ask how to link their bot). */
+function publicLink(): string {
     const s = settings();
+    const raw = (s.publicUrl !== undefined ? s.publicUrl : process.env.PUBLIC_URL) ?? "";
+    return String(raw).trim().replace(/\/+$/, "");
+}
+
+// Lightweight activity log so the AI can honestly answer "is Velrix online?"
+const SEEN_FILE = path.join(BASE_DIR, "sessions", SESSION_ID, "last-seen.json");
+function recordSeen(digits: string): void {
+    if (!digits) return;
+    try {
+        const file = SEEN_FILE;
+        let seen: Record<string, number> = {};
+        try { seen = JSON.parse(fs.readFileSync(file, "utf8")); } catch { }
+        seen[digits] = Date.now();
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, JSON.stringify(seen));
+    } catch { /* ignore */ }
+}
+function lastSeenMinutesAgo(digits: string): number | null {
+    try {
+        const seen = JSON.parse(fs.readFileSync(SEEN_FILE, "utf8")) as Record<string, number>;
+        const t = seen[digits];
+        return t ? Math.max(0, Math.round((Date.now() - t) / 60_000)) : null;
+    } catch { return null; }
+}
+
+/** Facts about this deployment injected into every AI prompt. */
+function deploymentContext(): string {
+    const s = settings();
+    const link = publicLink();
+    const admin = (s.adminNumber || "").replace(/\D/g, "");
+    const last = admin ? lastSeenMinutesAgo(admin) : null;
+    const activity = last === null
+        ? ""
+        : last <= 5
+            ? "Owner activity: the owner looks ONLINE right now (account active less than 5 minutes ago)."
+            : `Owner activity: owner last active on this account ${last} minute(s) ago.`;
+    const lines = [
+        "You are the assistant on this WhatsApp account. Talk like a real human texting.",
+        link ? `Link page URL: exactly ${link}/link` : "",
+        link ? `If someone asks for the link to link their bot, send exactly that URL — never invent a whatsapp.com or other link.` : "",
+        link ? `Saved files page: ${link}/my-files` : "",
+        admin ? `Owner/admin: +${admin}.` : "",
+        activity,
+        activity
+            ? "If asked whether the owner is online, answer from the owner activity line only."
+            : "If asked whether the owner is online, say you can't confirm right now — never guess.",
+    ];
+    return "\n\n[Deployment info]\n" + lines.filter(Boolean).join("\n");
+}
+
+/** Deterministic answer for "how do I link my bot" — models are unreliable here. */
+const LINK_INTENT = /\b(link|connect|register|sign\s*up)\b.*\b(bot|whatsapp|number|account)\b|\b(link|connect)\b.*\bmy\b.*\b(bot|whatsapp)\b|\bwhere\b.*\b(link|connect)\b/i;
+async function maybeLinkAnswer(chatJid: string, text: string): Promise<boolean> {
+    const link = publicLink();
+    if (!link) return false;
+    if (!LINK_INTENT.test(text)) return false;
+    await sock.sendMessage(chatJid, { text: `🔗 Link your bot here: ${link}/link\n\nOpen it, enter your number and scan the QR code.` });
+    return true;
+}
+
+/** One AI turn with short-reply styling, contact memory and failover pool. */
+async function aiTurn(
+    chatJid: string,
+    contact: string,
+    text: string,
+    systemPrompt: string,
+    history: { role: "user" | "assistant"; content: string }[],
+    preferredProviderId?: string,
+    pushName?: string
+): Promise<string> {
+    const s = settings();
+    let prompt = systemPrompt + deploymentContext();
+    if (s.features?.memory) {
+        try {
+            const mem = await getMemory(SESSION_ID, contact);
+            prompt += memoryPromptBlock(mem, pushName);
+        } catch { /* memory is best-effort */ }
+    }
+    await sock.sendPresenceUpdate("composing", chatJid).catch(() => { });
+    const { text: reply } = await callAiWithPool(s, text, prompt, history, { preferredId: preferredProviderId });
+    return trimReply(reply) || "(no response)";
+}
+
+/**
+ * Record the bot's reply (inbound text is recorded in the message listener) and
+ * every few messages fold the recent exchange into the contact's memory.
+ */
+function rememberExchange(contact: string, _userText: string, replyText: string, pushName?: string): void {
+    void appendTurn(SESSION_ID, contact, "assistant", replyText)
+        .then(() => learnIfNeeded(SESSION_ID, contact, pushName, settings()))
+        .catch(() => { /* ignore */ });
+}
+
+async function handleAiQuestion(chatJid: string, question: string, personaName?: string, join = false, msg?: any) {
+    const s = settings();
+    if (await maybeLinkAnswer(chatJid, question)) return;
     const persona = personaName ? getPersona(s, personaName) : null;
-    const provider = getPersonaProvider(s, persona);
-    if (!provider) {
+    const preferred = getPersonaProvider(s, persona);
+    if (!preferred) {
         await sock.sendMessage(chatJid, { text: "⚠️ No AI provider configured. Add one in the admin panel." });
         return;
     }
+    const contact = msg ? senderDigits(msg) : chatJid.split("@")[0].split(":")[0];
     const base = persona?.instructions || s.aiSystemPrompt;
     const systemPrompt = join
-        ? `${base}\n\nYou have just joined a WhatsApp conversation. Reply briefly and naturally. The user will say "enough" or "stop" when they want you to leave.`
+        ? `${base}\n\nYou are ${persona?.name ?? "the assistant"}, texting in this WhatsApp chat like a real person — casual, funny, you flow with the conversation. Keep every reply to 1-2 short sentences. You were called in; when the user says "enough" or "stop" you leave.`
         : base;
     if (join && persona) startSession(chatJid, persona.name);
     try {
-        await sock.sendPresenceUpdate("composing", chatJid).catch(() => { });
         const existing = join ? null : getActiveSession(chatJid);
         const history = existing && persona &&
             existing.persona.trim().toLowerCase() === persona.name.trim().toLowerCase()
             ? existing.history : [];
-        const reply = await callAiProvider(provider, question, systemPrompt, history);
-        await sock.sendMessage(chatJid, { text: reply || "🤖 (empty response)" });
+        const reply = await aiTurn(chatJid, contact, question, systemPrompt, history, preferred?.id, msg?.pushName);
+        await sock.sendMessage(chatJid, { text: reply });
         if (join) {
             appendToSession(chatJid, { role: "user", content: question });
             appendToSession(chatJid, { role: "assistant", content: reply });
         }
+        rememberExchange(contact, question, reply, msg?.pushName);
     } catch (e) {
-        await sock.sendMessage(chatJid, { text: `❌ AI error: ${e instanceof Error ? e.message : String(e)}` });
+        log(`AI error: ${e instanceof Error ? e.message : String(e)}`);
+        await sock.sendMessage(chatJid, { text: "😬 AI is unavailable right now — try again in a moment." });
     }
 }
 
@@ -391,22 +517,26 @@ async function handleSessionReply(chatJid: string, text: string, msg: any): Prom
     if (!active) return false;
     const s = settings();
     const persona = getPersona(s, active.persona);
-    const provider = getPersonaProvider(s, persona);
-    if (!provider) {
+    const preferred = getPersonaProvider(s, persona);
+    if (!preferred) {
         endSession(chatJid);
         await sock.sendMessage(chatJid, { text: `⚠️ ${active.persona} left — no AI provider configured.` });
         return true;
     }
+    const contact = senderDigits(msg);
     const base = persona?.instructions || s.aiSystemPrompt;
-    const systemPrompt = `${base}\n\nYou are in an ongoing WhatsApp conversation. Reply naturally and briefly. The user will say "enough" or "stop" when they want you to leave.`;
+    const systemPrompt =
+        `${base}\n\nYou are ${active.persona}, texting in an ongoing WhatsApp chat like a real person. ` +
+        `Match their tone, joke when it fits, and flow with the conversation. Keep every reply to 1-2 short sentences. ` +
+        `When the user says "enough" or "stop" you leave.`;
     const history = active.history.slice();
     appendToSession(chatJid, { role: "user", content: text });
     try {
-        await sock.sendPresenceUpdate("composing", chatJid).catch(() => { });
-        const reply = await callAiProvider(provider, text, systemPrompt, history);
+        const reply = await aiTurn(chatJid, contact, text, systemPrompt, history, preferred?.id, msg.pushName);
         if (reply) {
             await sock.sendMessage(chatJid, { text: reply }, { quoted: msg });
             appendToSession(chatJid, { role: "assistant", content: reply });
+            rememberExchange(contact, text, reply, msg.pushName);
         }
         return true;
     } catch (e) {
@@ -429,13 +559,11 @@ async function maybeAutoRespond(msg: any, chatJid: string, text: string): Promis
         await sock.sendPresenceUpdate("composing", chatJid).catch(() => { });
         let replyText = (rule.reply || "").replace(/\{name\}/g, msg.pushName || "there");
         if (rule.instructions) {
-            const provider = getPersonaProvider(s, { id: rule.id, name: "auto-respond", instructions: rule.instructions });
-            if (provider) {
-                try {
-                    const ai = await callAiProvider(provider, text, rule.instructions);
-                    if (ai) replyText = ai;
-                } catch (e) { log(`Auto-respond AI failed, using canned reply: ${e instanceof Error ? e.message : String(e)}`); }
-            }
+            try {
+                const contact = senderDigits(msg);
+                const ai = await aiTurn(chatJid, contact, text, rule.instructions, [], undefined, msg.pushName);
+                if (ai) replyText = ai;
+            } catch (e) { log(`Auto-respond AI failed, using canned reply: ${e instanceof Error ? e.message : String(e)}`); }
         }
         if (replyText) await sock.sendMessage(chatJid, { text: replyText }, { quoted: msg });
         return true;
@@ -457,11 +585,11 @@ async function maybeAiReply(msg: any, chatJid: string, text: string) {
 
     if (s.features.replyMode === "only" && admin && from !== admin) return;
 
-    // In groups, only answer when mentioned, to avoid replying to every message.
+    // In groups, only answer when mentioned — never reply to every group message.
     if (isGroup) {
         const mentioned = !!msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length;
         const directInvite = /^(ai|bot)[,:\s]/i.test(text.trim());
-        if (!mentioned && !directInvite && s.features.replyMode !== "all") return;
+        if (!mentioned && !directInvite) return;
     }
 
     const rule = firstMatchingRule(s.aiRules, text);
@@ -470,13 +598,14 @@ async function maybeAiReply(msg: any, chatJid: string, text: string) {
         return;
     }
 
-    const provider = getActiveAiProvider(s);
-    if (!provider) return;
+    if (!(s.aiProviders ?? []).length) return;
+
+    if (await maybeLinkAnswer(chatJid, text)) return;
 
     try {
-        await sock.sendPresenceUpdate("composing", chatJid).catch(() => { });
-        const reply = await callAiProvider(provider, text, s.aiSystemPrompt);
+        const reply = await aiTurn(chatJid, from, text, s.aiSystemPrompt, [], undefined, msg.pushName);
         if (reply) await sock.sendMessage(chatJid, { text: reply }, { quoted: msg });
+        rememberExchange(from, text, reply, msg.pushName);
     } catch (e) {
         log(`AI error: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -593,6 +722,22 @@ async function run() {
             if (msg.message?.reactionMessage) { await handleReaction(msg); continue; }
             if (chatJid === "status@broadcast") { await handleStatusReaction(msg); continue; }
 
+            // Remember who is talking and keep a rolling transcript for the memory learner.
+            if (text) {
+                if (msg.key.fromMe) {
+                    // Outgoing messages mean the owner's account was active (used for "is Velrix online?").
+                    recordSeen(storagePhone());
+                } else {
+                    const digits = senderDigits(msg);
+                    recordSeen(digits);
+                    if (!chatJid.endsWith("@g.us")) {
+                        void appendTurn(SESSION_ID, digits, "user", text)
+                            .then(() => learnIfNeeded(SESSION_ID, digits, msg.pushName, settings()))
+                            .catch(() => { });
+                    }
+                }
+            }
+
             const s = settings();
             if (autoTypingEnabled && s.features?.autoPresence && !isFromMe(msg) && text) {
                 try { await socket.sendPresenceUpdate("composing", chatJid); } catch { }
@@ -624,7 +769,8 @@ async function run() {
             if (cmd === "save") { handled = true; try { await socket.sendMessage(chatJid, { delete: msg.key }); } catch { } await handleSaveStatus(msg, chatJid); }
             if (cmd === "ping") { handled = true; await socket.sendMessage(chatJid, { text: "🏓 Pong!" }); }
             if (cmd === "menu" || cmd === "help") { handled = true; await socket.sendMessage(chatJid, { text: buildMenu(chatJid) }); }
-            if (cmd === "files") { handled = true; await socket.sendMessage(chatJid, { text: `📁 View all files: ${process.env.PUBLIC_URL}/my-files` }); }
+            if (cmd === "commands" || cmd === "cc") { handled = true; await socket.sendMessage(chatJid, { text: customCommandList() }); }
+            if (cmd === "files") { handled = true; await socket.sendMessage(chatJid, { text: `📁 View all files: ${publicLink()}/my-files` }); }
             if (cmd === "ai" || cmd.startsWith("ai/")) {
                 handled = true;
                 const question = args.join(" ").trim();
@@ -633,7 +779,17 @@ async function run() {
                 } else if (!owner && settings().features.replyMode === "only") {
                     await socket.sendMessage(chatJid, { text: "🔒 AI is limited to the admin in this mode." });
                 } else {
-                    await handleAiQuestion(chatJid, question, cmd.startsWith("ai/") ? cmd.slice(3) : undefined);
+                    await handleAiQuestion(chatJid, question, cmd.startsWith("ai/") ? cmd.slice(3) : undefined, false, msg);
+                }
+            }
+            // Ongoing persona conversation — reply until the user says enough/stop
+            // (checked before the name trigger so "nora enough" ends the chat)
+            if (!handled && text.trim()) {
+                const active = getActiveSession(chatJid);
+                if (active && isStopMessage(text, active.persona)) {
+                    handled = true;
+                    endSession(chatJid);
+                    await socket.sendMessage(chatJid, { text: `👋 ${active.persona} has left the conversation.` });
                 }
             }
             // Persona by name: "Nora what is utc" / "nora, are you there"
@@ -647,21 +803,16 @@ async function run() {
                         startSession(chatJid, pm.persona.name);
                         await socket.sendMessage(chatJid, { text: `🤖 ${pm.persona.name} has joined the chat — ask away. Say "enough" when you're done.` });
                     } else {
-                        await handleAiQuestion(chatJid, pm.question, pm.persona.name, true);
+                        await handleAiQuestion(chatJid, pm.question, pm.persona.name, true, msg);
                     }
                 }
             }
-            // Ongoing persona conversation — reply until the user says enough/stop
+            // Active persona chat — keep the conversation flowing
             if (!handled && text.trim()) {
                 const active = getActiveSession(chatJid);
                 if (active) {
                     handled = true;
-                    if (isStopMessage(text, active.persona)) {
-                        endSession(chatJid);
-                        await socket.sendMessage(chatJid, { text: `👋 ${active.persona} has left the conversation.` });
-                    } else {
-                        await handleSessionReply(chatJid, text, msg);
-                    }
+                    await handleSessionReply(chatJid, text, msg);
                 }
             }
             // Custom commands (data/custom-commands.json)

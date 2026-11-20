@@ -17,7 +17,10 @@ import {
 import { getSock } from "../lib/whatsapp-bot";
 import { loadCustomCommands, getCommandsFile } from "../lib/features/custom-commands";
 import { listAutoRules, upsertAutoRule, deleteAutoRule } from "../lib/auto-respond";
+import { listMemories, getMemory, setFacts, deleteMemory } from "../lib/memory";
 import fs from "fs";
+
+type AuthedRequest = Request & { user?: { phone: string; isOwner: boolean } };
 
 const router = Router();
 
@@ -26,8 +29,20 @@ function requireSession(req: Request, res: Response, next: NextFunction): void {
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   const session = token ? getSession(token) : null;
   if (!session) { res.status(401).json({ error: "Unauthorized" }); return; }
-  (req as Request & { user?: { phone: string } }).user = { phone: session.phone };
+  (req as AuthedRequest).user = { phone: session.phone, isOwner: session.isOwner };
   next();
+}
+
+/** Provider keys, bot-wide settings and other admin controls are owner-only. */
+function requireOwner(req: Request, res: Response, next: NextFunction): void {
+  const sess = (req as AuthedRequest).user;
+  if (!sess?.isOwner) { res.status(403).json({ error: "Only the bot owner can change this" }); return; }
+  next();
+}
+
+/** Each bot user only sees the memory of the session linked to their own number. */
+function sessionIdFor(phone: string): string {
+  return `user_${phone.replace(/\D/g, "")}`;
 }
 
 // GET /api/settings/auth-status
@@ -117,13 +132,19 @@ router.post("/settings/verify", (req: Request, res: Response) => {
   res.json({ ok: true, token });
 });
 
+// GET /api/settings/me
+router.get("/settings/me", requireSession, (req: Request, res: Response) => {
+  const sess = (req as AuthedRequest).user!;
+  res.json({ ok: true, phone: sess.phone, isOwner: sess.isOwner });
+});
+
 // GET /api/settings
 router.get("/settings", requireSession, (_req, res) => {
   res.json(loadSettings());
 });
 
-// POST /api/settings
-router.post("/settings", requireSession, (req: Request, res: Response) => {
+// POST /api/settings — owner only (holds the AI API keys)
+router.post("/settings", requireSession, requireOwner, (req: Request, res: Response) => {
   const body = req.body as Partial<BotSettings>;
   const current = loadSettings();
   const updated: BotSettings = {
@@ -139,6 +160,7 @@ router.post("/settings", requireSession, (req: Request, res: Response) => {
     aiRules: Array.isArray(body.aiRules) ? body.aiRules : current.aiRules,
     defaultAiProvider: typeof body.defaultAiProvider === "string" ? body.defaultAiProvider : current.defaultAiProvider,
     personas: Array.isArray(body.personas) ? body.personas : current.personas,
+    publicUrl: typeof body.publicUrl === "string" ? body.publicUrl.trim().replace(/\/+$/, "") : current.publicUrl,
   };
   applySettings(updated);
   res.json({ ok: true, settings: updated });
@@ -149,13 +171,13 @@ router.get("/auto-respond", requireSession, (_req, res) => {
   res.json({ ok: true, rules: listAutoRules() });
 });
 
-router.post("/auto-respond", requireSession, (req: Request, res: Response) => {
+router.post("/auto-respond", requireSession, requireOwner, (req: Request, res: Response) => {
   const rule = upsertAutoRule(req.body || {});
   if (!rule) { res.status(400).json({ ok: false, error: "Contact, at least one trigger, and a reply or instructions are required" }); return; }
   res.json({ ok: true, rule });
 });
 
-router.delete("/auto-respond/:id", requireSession, (req: Request, res: Response) => {
+router.delete("/auto-respond/:id", requireSession, requireOwner, (req: Request, res: Response) => {
   const raw = req.params["id"];
   const id = Array.isArray(raw) ? raw[0] : (raw ?? "");
   if (!deleteAutoRule(id)) { res.status(404).json({ ok: false, error: "Rule not found" }); return; }
@@ -168,7 +190,7 @@ router.get("/settings/custom-commands", requireSession, (_req, res) => {
 });
 
 // POST /api/settings/custom-commands
-router.post("/settings/custom-commands", requireSession, (req: Request, res: Response) => {
+router.post("/settings/custom-commands", requireSession, requireOwner, (req: Request, res: Response) => {
   const commands = req.body?.commands;
   if (!Array.isArray(commands)) { res.status(400).json({ error: "commands must be an array" }); return; }
   try {
@@ -177,6 +199,42 @@ router.post("/settings/custom-commands", requireSession, (req: Request, res: Res
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
+});
+
+// ── Per-contact AI memory (each user only sees their own bot's contacts) ──
+router.get("/memory", requireSession, async (req: Request, res: Response) => {
+  const sess = (req as AuthedRequest).user!;
+  const memories = await listMemories(sessionIdFor(sess.phone));
+  res.json({ ok: true, memories });
+});
+
+router.get("/memory/:contact", requireSession, async (req: Request, res: Response) => {
+  const sess = (req as AuthedRequest).user!;
+  const raw = req.params["contact"];
+  const contact = String(Array.isArray(raw) ? raw[0] : raw).replace(/\D/g, "");
+  if (!contact) { res.status(400).json({ ok: false, error: "Invalid contact" }); return; }
+  const memory = await getMemory(sessionIdFor(sess.phone), contact);
+  res.json({ ok: true, contact, memory });
+});
+
+router.post("/memory/:contact", requireSession, async (req: Request, res: Response) => {
+  const sess = (req as AuthedRequest).user!;
+  const raw = req.params["contact"];
+  const contact = String(Array.isArray(raw) ? raw[0] : raw).replace(/\D/g, "");
+  if (!contact) { res.status(400).json({ ok: false, error: "Invalid contact" }); return; }
+  const facts = Array.isArray(req.body?.facts) ? req.body.facts : [];
+  const summary = typeof req.body?.summary === "string" ? req.body.summary : undefined;
+  const memory = await setFacts(sessionIdFor(sess.phone), contact, facts, summary);
+  res.json({ ok: true, contact, memory });
+});
+
+router.delete("/memory/:contact", requireSession, async (req: Request, res: Response) => {
+  const sess = (req as AuthedRequest).user!;
+  const raw = req.params["contact"];
+  const contact = String(Array.isArray(raw) ? raw[0] : raw).replace(/\D/g, "");
+  if (!contact) { res.status(400).json({ ok: false, error: "Invalid contact" }); return; }
+  await deleteMemory(sessionIdFor(sess.phone), contact);
+  res.json({ ok: true });
 });
 
 export default router;
