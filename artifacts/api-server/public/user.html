@@ -214,11 +214,15 @@
         <!-- Step 2: Pairing code -->
         <div id="step-code" style="display:none;">
             <div class="pairing-code">
-                <div style="font-size: 13px; color: #888;">Enter this code in WhatsApp</div>
+                <div style="font-size: 13px; color: #888;">Enter this code in WhatsApp, or scan the QR</div>
                 <div class="code" id="code-text">--------</div>
                 <div class="hint">
                     WhatsApp → Settings → Linked Devices → Link with Phone Number
                 </div>
+                <div id="qr-box" style="display:none; margin-top:16px; background:#fff; padding:10px; border-radius:10px;">
+                    <img id="qr-img" alt="QR" style="max-width:220px; width:100%; height:auto;" />
+                </div>
+                <div id="code-status" class="hint">Preparing…</div>
             </div>
             <button class="btn secondary" onclick="location.reload()">Done</button>
         </div>
@@ -269,38 +273,55 @@
                     return;
                 }
 
-                // Create a new session
+                // Ensure the session exists (server reuses a live worker, no duplicates)
                 const createRes = await fetch(`${API}/sessions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: sessionId, label: '+ ' + phone })
+                    body: JSON.stringify({ id: sessionId, phone: phone.replace(/\D/g, '') })
                 });
                 const createData = await createRes.json();
                 if (!createData.ok) throw new Error(createData.error || 'Failed to create session');
 
-                // Wait for socket to init
-                await new Promise(r => setTimeout(r, 2500));
-
-                // Request pairing code
-                const pairRes = await fetch(`${API}/sessions/${sessionId}/pairing`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone })
-                });
-                const pairData = await pairRes.json();
-                if (!pairData.ok) throw new Error(pairData.error || 'Failed to get pairing code');
-
-                // Show code
+                // Show the code panel and poll until a code, QR or connection appears
                 document.getElementById('step-phone').style.display = 'none';
                 document.getElementById('step-code').style.display = 'block';
-                document.getElementById('code-text').textContent = pairData.code;
-
+                await pollPairing(sessionId);
             } catch (e) {
                 errEl.textContent = e.message;
                 errEl.style.display = 'block';
                 btn.disabled = false;
                 btn.textContent = 'Get Pairing Code';
             }
+        }
+
+        async function pollPairing(sessionId) {
+            const codeEl = document.getElementById('code-text');
+            const statusEl = document.getElementById('code-status');
+            const qrBox = document.getElementById('qr-box');
+            const qrImg = document.getElementById('qr-img');
+
+            for (let i = 0; i < 40; i++) { // ~80s
+                const res = await fetch(`${API}/sessions/${sessionId}`);
+                const data = await res.json();
+                if (!data.ok) { statusEl.textContent = data.error || 'Session not found'; return; }
+                const s = data.session;
+
+                if (s.status === 'connected') {
+                    statusEl.textContent = '✅ Linked!';
+                    showSettings(s);
+                    return;
+                }
+                if (s.pairingCode) {
+                    codeEl.textContent = s.pairingCode;
+                    statusEl.textContent = 'Enter this code in WhatsApp now';
+                } else {
+                    statusEl.textContent = 'Waiting for WhatsApp… (you can also scan the QR)';
+                }
+                if (s.qrDataUrl) { qrImg.src = s.qrDataUrl; qrBox.style.display = 'block'; }
+
+                await new Promise(r => setTimeout(r, 2000));
+            }
+            statusEl.textContent = 'Still waiting… tap Done and try again if it never connects.';
         }
 
         function showSettings(session) {

@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { spawnWorker, killWorker, getWorker, getAllWorkers } from "../lib/manager";
+import { spawnWorker, killWorker, getWorker, getAllWorkers, toPublicWorker } from "../lib/manager";
 
 const router: IRouter = Router();
 
@@ -8,17 +8,14 @@ function getParam(req: Request, key: string): string {
   return Array.isArray(val) ? val[0] : val;
 }
 
+function phoneFromId(sessionId: string): string {
+  const fromId = sessionId.replace(/^user_/, "");
+  return /^\d+$/.test(fromId) ? fromId : "";
+}
+
 router.get("/sessions", (_req: Request, res: Response) => {
   try {
-    const sessions = getAllWorkers().map(w => ({
-      id: w.sessionId,
-      label: w.phone || w.sessionId,
-      status: w.status,
-      qrDataUrl: w.qrDataUrl,
-      pairingCode: w.pairingCode,
-      phoneNumber: w.phoneNumber,
-    }));
-    res.json({ ok: true, sessions });
+    res.json({ ok: true, sessions: getAllWorkers().map(toPublicWorker) });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e as Error).message });
   }
@@ -26,44 +23,60 @@ router.get("/sessions", (_req: Request, res: Response) => {
 
 router.get("/sessions/:id", (req: Request, res: Response) => {
   try {
-    const id = getParam(req, "id");
-    const w = getWorker(id);
+    const w = getWorker(getParam(req, "id"));
     if (!w) {
       res.status(404).json({ ok: false, error: "Session not found" });
       return;
     }
-    res.json({ ok: true, session: w });
+    res.json({ ok: true, session: toPublicWorker(w) });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e as Error).message });
   }
 });
 
-router.post("/sessions", async (req: Request, res: Response) => {
+// Create / ensure a session. Reuses a live worker instead of spawning a new one.
+router.post("/sessions", (req: Request, res: Response) => {
   try {
-    const { id, label } = req.body || {};
-    const sessionId = id || `user_${Date.now()}`;
+    const body = req.body || {};
+    const rawId: string = body.id || `user_${String(body.phone ?? "").replace(/\D/g, "")}`;
+    const phone: string = String(body.phone ?? phoneFromId(rawId)).replace(/\D/g, "");
 
-    // spawnWorker takes sessionId and phone. We extract phone from ID if not provided.
-    const phone = sessionId.replace(/^user_/, "");
-    spawnWorker(sessionId, phone);
-
-    await new Promise(r => setTimeout(r, 2000));
-    const w = getWorker(sessionId);
-    res.json({ ok: true, session: w });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: (e as Error).message });
-  }
-});
-
-router.post("/sessions/:id/pairing", async (req: Request, res: Response) => {
-  try {
-    const id = getParam(req, "id");
-    const w = getWorker(id);
-    if (!w || !w.pairingCode) {
-      res.status(400).json({ ok: false, error: "Pairing code not ready yet. Try again." });
+    if (!rawId || rawId === "user_") {
+      res.status(400).json({ ok: false, error: "A phone number is required" });
       return;
     }
-    res.json({ ok: true, code: w.pairingCode });
+
+    const w = spawnWorker(rawId, phone);
+    res.json({ ok: true, session: toPublicWorker(w) });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: (e as Error).message });
+  }
+});
+
+// Read the current pairing code (does not spawn). Returns pending:true while waiting.
+router.post("/sessions/:id/pairing", (req: Request, res: Response) => {
+  try {
+    const w = getWorker(getParam(req, "id"));
+    if (!w) {
+      res.status(404).json({ ok: false, error: "Session not found" });
+      return;
+    }
+    if (w.pairingCode) {
+      res.json({ ok: true, code: w.pairingCode });
+      return;
+    }
+    res.status(202).json({ ok: false, pending: true, status: w.status, error: "Preparing pairing code…" });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: (e as Error).message });
+  }
+});
+
+// Force a fresh worker (used by the Restart button).
+router.post("/sessions/:id/restart", (req: Request, res: Response) => {
+  try {
+    const id = getParam(req, "id");
+    const w = spawnWorker(id, phoneFromId(id), { force: true });
+    res.json({ ok: true, session: toPublicWorker(w) });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e as Error).message });
   }
@@ -71,8 +84,7 @@ router.post("/sessions/:id/pairing", async (req: Request, res: Response) => {
 
 router.delete("/sessions/:id", (req: Request, res: Response) => {
   try {
-    const id = getParam(req, "id");
-    killWorker(id);
+    killWorker(getParam(req, "id"));
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e as Error).message });

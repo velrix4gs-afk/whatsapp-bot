@@ -16,6 +16,7 @@ import {
 } from "../lib/settings";
 import { getSock } from "../lib/whatsapp-bot";
 import { loadCustomCommands, getCommandsFile } from "../lib/features/custom-commands";
+import { listAutoRules, upsertAutoRule, deleteAutoRule } from "../lib/auto-respond";
 import fs from "fs";
 
 const router = Router();
@@ -133,9 +134,32 @@ router.post("/settings", requireSession, (req: Request, res: Response) => {
     goodbyeMessage: body.goodbyeMessage ?? current.goodbyeMessage,
     antiLinkWhitelist: Array.isArray(body.antiLinkWhitelist) ? body.antiLinkWhitelist : current.antiLinkWhitelist,
     aiSystemPrompt: body.aiSystemPrompt ?? current.aiSystemPrompt,
+    adminNumber: typeof body.adminNumber === "string" ? body.adminNumber.replace(/\D/g, "") : current.adminNumber,
+    aiProviders: Array.isArray(body.aiProviders) ? body.aiProviders : current.aiProviders,
+    aiRules: Array.isArray(body.aiRules) ? body.aiRules : current.aiRules,
+    defaultAiProvider: typeof body.defaultAiProvider === "string" ? body.defaultAiProvider : current.defaultAiProvider,
+    personas: Array.isArray(body.personas) ? body.personas : current.personas,
   };
   applySettings(updated);
   res.json({ ok: true, settings: updated });
+});
+
+// ── Auto-respond rules (per contact) ────────────────────────────────
+router.get("/auto-respond", requireSession, (_req, res) => {
+  res.json({ ok: true, rules: listAutoRules() });
+});
+
+router.post("/auto-respond", requireSession, (req: Request, res: Response) => {
+  const rule = upsertAutoRule(req.body || {});
+  if (!rule) { res.status(400).json({ ok: false, error: "Contact, at least one trigger, and a reply or instructions are required" }); return; }
+  res.json({ ok: true, rule });
+});
+
+router.delete("/auto-respond/:id", requireSession, (req: Request, res: Response) => {
+  const raw = req.params["id"];
+  const id = Array.isArray(raw) ? raw[0] : (raw ?? "");
+  if (!deleteAutoRule(id)) { res.status(404).json({ ok: false, error: "Rule not found" }); return; }
+  res.json({ ok: true });
 });
 
 // GET /api/settings/custom-commands

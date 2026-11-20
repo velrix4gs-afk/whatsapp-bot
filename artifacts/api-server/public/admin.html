@@ -2,471 +2,888 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WhatsApp Bot Admin</title>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0f1117; --panel: #1a1d26; --panel2: #14161e; --border: #252933;
+            --text: #e6e6e6; --muted: #8b93a7; --green: #00ff88; --green2: #00cc6a;
+            --red: #ff4757; --yellow: #ffcc00; --blue: #3b82f6;
         }
-
         body {
-            background: #0f1117;
-            color: #e6e6e6;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg); color: var(--text); min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             padding: 20px;
-            min-height: 100vh;
         }
+        a { color: var(--green); }
+        .wrap { max-width: 1100px; margin: 0 auto; }
 
         header {
-            max-width: 1100px;
-            margin: 0 auto 30px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 15px;
+            display: flex; justify-content: space-between; align-items: center;
+            flex-wrap: wrap; gap: 12px; margin-bottom: 20px;
         }
-
-        h1 {
-            font-size: 24px;
-            color: #00ff88;
-        }
+        h1 { font-size: 22px; color: var(--green); }
+        .muted { color: var(--muted); font-size: 12px; margin-top: 4px; }
 
         .btn {
-            background: #00ff88;
-            color: #0f1117;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: 0.2s;
+            background: var(--green); color: #0f1117; border: none; padding: 10px 16px;
+            border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: .15s;
         }
+        .btn:hover { background: var(--green2); }
+        .btn:disabled { opacity: .5; cursor: not-allowed; }
+        .btn.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+        .btn.secondary:hover { background: var(--panel2); border-color: #3a3f4d; }
+        .btn.danger { background: var(--red); color: #fff; }
+        .btn.danger:hover { background: #d63447; }
+        .btn.sm { padding: 7px 12px; font-size: 12px; }
 
-        .btn:hover {
-            background: #00cc6a;
+        .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+        .tab {
+            background: none; border: none; color: var(--muted); padding: 10px 16px;
+            cursor: pointer; font-size: 14px; font-weight: 600; border-bottom: 2px solid transparent;
         }
+        .tab.active { color: var(--green); border-bottom-color: var(--green); }
 
-        .btn.secondary {
-            background: transparent;
-            color: #e6e6e6;
-            border: 1px solid #333;
-        }
+        .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+        .panel h2 { font-size: 16px; margin-bottom: 14px; }
+        .panel h2 .sub { color: var(--muted); font-weight: 400; font-size: 12px; }
 
-        .btn.secondary:hover {
-            background: #1a1d26;
-            border-color: #555;
+        .field { margin-bottom: 14px; }
+        label.lbl { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+        input, select, textarea {
+            width: 100%; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+            padding: 11px 12px; border-radius: 8px; font-size: 14px; outline: none; font-family: inherit;
         }
+        input:focus, select:focus, textarea:focus { border-color: var(--green); }
+        textarea { resize: vertical; }
 
-        .btn.danger {
-            background: #ff4757;
-            color: white;
-        }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+        .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+        .card.highlight { border-color: var(--green); box-shadow: 0 0 0 1px var(--green) inset; }
+        .card h3 { font-size: 15px; margin-bottom: 8px; word-break: break-word; }
+        .status { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
+        .status.connected { background: #00ff8822; color: var(--green); }
+        .status.qr, .status.connecting, .status.starting { background: #ffcc0022; color: var(--yellow); }
+        .status.disconnected { background: #ff475722; color: var(--red); }
+        .info { font-size: 13px; color: var(--muted); margin: 4px 0; }
+        .info strong { color: var(--text); }
 
-        .btn.danger:hover {
-            background: #d63447;
-        }
+        .code-box { background: var(--panel2); border: 2px solid var(--green); border-radius: 10px; padding: 14px; text-align: center; margin: 12px 0; }
+        .code-box .code { font-size: 26px; font-weight: 800; letter-spacing: 4px; color: var(--green); font-family: monospace; }
+        .code-box .hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
+        .qr-wrap { background: #fff; border-radius: 10px; padding: 10px; text-align: center; margin: 12px 0; }
+        .qr-wrap img { width: 100%; max-width: 220px; height: auto; }
 
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
+        .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .spacer { flex: 1; }
 
-        .grid {
-            max-width: 1100px;
-            margin: 0 auto;
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-            gap: 20px;
-        }
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+        .toggle-row:last-child { border-bottom: none; }
+        .switch { position: relative; width: 44px; height: 24px; background: var(--border); border-radius: 12px; cursor: pointer; transition: .15s; flex: none; }
+        .switch.on { background: var(--green); }
+        .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: #fff; border-radius: 50%; transition: .15s; }
+        .switch.on::after { left: 22px; }
 
-        .card {
-            background: #1a1d26;
-            border: 1px solid #252933;
-            border-radius: 12px;
-            padding: 20px;
-            transition: 0.2s;
-        }
+        .list-item { display: flex; gap: 12px; align-items: center; padding: 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; background: var(--panel2); }
+        .list-item .grow { flex: 1; min-width: 0; }
+        .list-item .title { font-size: 14px; font-weight: 600; word-break: break-word; }
+        .list-item .desc { font-size: 12px; color: var(--muted); margin-top: 3px; word-break: break-word; }
+        .badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; background: #00ff8822; color: var(--green); font-weight: 700; text-transform: uppercase; }
 
-        .card:hover {
-            border-color: #00ff88;
-        }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.75); display: none; justify-content: center; align-items: center; z-index: 1000; padding: 20px; }
+        .modal-overlay.active { display: flex; }
+        .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 24px; width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; }
+        .modal h2 { font-size: 18px; margin-bottom: 16px; color: var(--green); }
 
-        .card h3 {
-            font-size: 16px;
-            margin-bottom: 8px;
-            word-break: break-word;
-        }
+        .auth-card { max-width: 400px; margin: 8vh auto 0; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 30px; }
+        .auth-card h1 { font-size: 22px; margin-bottom: 6px; }
 
-        .status {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            margin-bottom: 12px;
-        }
-
-        .status.connected {
-            background: #00ff8822;
-            color: #00ff88;
-        }
-
-        .status.qr {
-            background: #ffcc0022;
-            color: #ffcc00;
-        }
-
-        .status.connecting {
-            background: #3b82f622;
-            color: #3b82f6;
-        }
-
-        .status.disconnected {
-            background: #ff475722;
-            color: #ff4757;
-        }
-
-        .info {
-            font-size: 13px;
-            color: #888;
-            margin: 6px 0;
-        }
-
-        .info strong {
-            color: #e6e6e6;
-        }
-
-        .qr-container {
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 15px 0;
-            text-align: center;
-        }
-
-        .qr-container img {
-            max-width: 220px;
-            width: 100%;
-            height: auto;
-        }
-
-        .actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 15px;
-            flex-wrap: wrap;
-        }
-
-        .actions .btn {
-            padding: 8px 14px;
-            font-size: 12px;
-        }
-
-        /* Modal */
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.8);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-            padding: 20px;
-        }
-
-        .modal-overlay.active {
-            display: flex;
-        }
-
-        .modal {
-            background: #1a1d26;
-            border: 1px solid #252933;
-            border-radius: 16px;
-            padding: 30px;
-            width: 100%;
-            max-width: 440px;
-            max-height: 90vh;
-            overflow-y: auto;
-        }
-
-        .modal h2 {
-            font-size: 20px;
-            margin-bottom: 20px;
-            color: #00ff88;
-        }
-
-        .modal label {
-            display: block;
-            font-size: 13px;
-            color: #888;
-            margin-bottom: 6px;
-            margin-top: 14px;
-        }
-
-        .modal input {
-            width: 100%;
-            background: #0f1117;
-            border: 1px solid #252933;
-            color: #e6e6e6;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 14px;
-            outline: none;
-        }
-
-        .modal input:focus {
-            border-color: #00ff88;
-        }
-
-        .modal .actions {
-            margin-top: 24px;
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-        }
-
-        .pairing-code {
-            background: #0f1117;
-            border: 2px solid #00ff88;
-            border-radius: 12px;
-            padding: 20px;
-            text-align: center;
-            margin-top: 20px;
-        }
-
-        .pairing-code .code {
-            font-size: 32px;
-            font-weight: bold;
-            letter-spacing: 4px;
-            color: #00ff88;
-            font-family: monospace;
-            margin: 10px 0;
-        }
-
-        .pairing-code .hint {
-            font-size: 12px;
-            color: #888;
-            margin-top: 10px;
-            line-height: 1.5;
-        }
-
-        .error {
-            background: #ff475722;
-            border: 1px solid #ff4757;
-            color: #ff8888;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 13px;
-            margin-top: 15px;
-        }
-
-        .empty {
-            text-align: center;
-            padding: 60px 20px;
-            color: #555;
-            grid-column: 1/-1;
-        }
-
-        .empty p {
-            margin-top: 10px;
-            font-size: 14px;
-        }
-
-        .refresh-badge {
-            font-size: 11px;
-            color: #555;
-            margin-top: 5px;
-        }
+        .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); background: var(--green); color: #0f1117; padding: 12px 20px; border-radius: 10px; font-weight: 700; font-size: 14px; opacity: 0; pointer-events: none; transition: .25s; z-index: 2000; }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .toast.err { background: var(--red); color: #fff; }
+        .hidden { display: none !important; }
+        .error-text { color: var(--red); font-size: 13px; margin-top: 10px; }
+        .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
     </style>
 </head>
 
 <body>
+    <div id="auth-view" class="hidden">
+        <div class="auth-card">
+            <h1>🤖 WhatsApp Bot</h1>
+            <p class="muted" id="auth-sub">Sign in to manage your bot.</p>
 
-    <header>
-        <div>
-            <h1>🤖 WhatsApp Bot Admin</h1>
-            <div class="refresh-badge" id="last-refresh">Auto-refreshes every 5s</div>
+            <div class="field" style="margin-top:18px;">
+                <label class="lbl">Phone number (country code, no +)</label>
+                <input type="tel" id="auth-phone" placeholder="2348103077073" />
+            </div>
+            <div class="field">
+                <label class="lbl">PIN</label>
+                <input type="password" id="auth-pin" maxlength="8" inputmode="numeric" placeholder="••••" />
+            </div>
+            <div class="row" style="margin-top:8px;">
+                <button class="btn" id="login-btn" onclick="doLogin()">Log in</button>
+                <button class="btn secondary" id="register-btn" onclick="doRegister()">Create account</button>
+            </div>
+            <div class="error-text" id="auth-error"></div>
         </div>
-        <button class="btn" onclick="openAddModal()">+ Add Session</button>
-    </header>
-
-    <div class="grid" id="sessions-grid">
-        <div class="empty">Loading sessions...</div>
     </div>
 
-    <!-- Add Session Modal -->
-    <div class="modal-overlay" id="add-modal">
+    <div id="app-view" class="wrap hidden">
+        <header>
+            <div>
+                <h1>🤖 WhatsApp Bot Admin</h1>
+                <div class="muted" id="whoami">—</div>
+            </div>
+            <div class="row">
+                <span class="muted" id="bot-status">—</span>
+                <button class="btn secondary sm" onclick="logout()">Log out</button>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <button class="tab active" data-tab="sessions" onclick="switchTab('sessions')">📱 Sessions</button>
+            <button class="tab" data-tab="ai" onclick="switchTab('ai')">🧠 AI</button>
+            <button class="tab" data-tab="autorespond" onclick="switchTab('autorespond')">💬 Auto-respond</button>
+            <button class="tab" data-tab="settings" onclick="switchTab('settings')">⚙️ Settings</button>
+            <button class="tab" data-tab="files" onclick="switchTab('files')">📁 Files</button>
+        </div>
+
+        <!-- SESSIONS -->
+        <section id="tab-sessions">
+            <div class="panel">
+                <h2>Link a WhatsApp number <span class="sub">— enter the phone, then scan the QR or type the pairing code</span></h2>
+                <div class="row">
+                    <input type="tel" id="new-phone" placeholder="Phone with country code, e.g. 2348103077073" style="max-width:340px;" />
+                    <button class="btn" id="add-session-btn" onclick="addSession()">Get pairing code</button>
+                </div>
+                <div class="error-text" id="add-error"></div>
+            </div>
+            <div class="grid" id="sessions-grid"><div class="empty">Loading sessions…</div></div>
+        </section>
+
+        <!-- AI -->
+        <section id="tab-ai" class="hidden">
+            <div class="panel">
+                <h2>AI settings</h2>
+                <div class="field">
+                    <label class="lbl">Default provider</label>
+                    <select id="default-provider"></select>
+                </div>
+                <div class="field">
+                    <label class="lbl">System prompt</label>
+                    <textarea id="system-prompt" rows="3" placeholder="You are a helpful WhatsApp assistant..."></textarea>
+                </div>
+                <button class="btn" onclick="saveAiSettings()">Save AI settings</button>
+            </div>
+
+            <div class="panel">
+                <div class="row">
+                    <h2 style="margin:0;">API providers <span class="sub">— add your OpenAI / Anthropic / Gemini keys</span></h2>
+                    <div class="spacer"></div>
+                    <button class="btn" onclick="openProviderModal()">+ Add provider</button>
+                </div>
+                <div id="providers-list" style="margin-top:14px;"></div>
+            </div>
+
+            <div class="panel">
+                <div class="row">
+                    <h2 style="margin:0;">Reply rules <span class="sub">— instant canned answers (checked before AI)</span></h2>
+                    <div class="spacer"></div>
+                    <button class="btn" onclick="openRuleModal()">+ Add rule</button>
+                </div>
+                <div id="rules-list" style="margin-top:14px;"></div>
+            </div>
+
+            <div class="panel">
+                <div class="row">
+                    <h2 style="margin:0;">AI personas <span class="sub">— use in chat as /ai/&lt;name&gt; your question</span></h2>
+                    <div class="spacer"></div>
+                    <button class="btn" onclick="openPersonaModal()">+ Add persona</button>
+                </div>
+                <div id="personas-list" style="margin-top:14px;"></div>
+            </div>
+        </section>
+
+        <!-- AUTO-RESPOND -->
+        <section id="tab-autorespond" class="hidden">
+            <div class="panel">
+                <div class="row">
+                    <h2 style="margin:0;">Per-contact auto-respond <span class="sub">— reply when a specific person says a trigger word</span></h2>
+                    <div class="spacer"></div>
+                    <button class="btn" onclick="openAutoRuleModal()">+ Add rule</button>
+                </div>
+                <p class="muted" style="margin-top:10px;line-height:1.6;">
+                    Personal chats only. Use <code>{name}</code> in the reply for their WhatsApp name.
+                    If you add AI instructions, the AI writes the reply using them instead of the fixed text.
+                </p>
+                <div id="auto-list" style="margin-top:14px;"></div>
+            </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section id="tab-settings" class="hidden">
+            <div class="panel">
+                <h2>General</h2>
+                <div class="field">
+                    <label class="lbl">Admin phone number <span class="muted">(controls who can use AI/rules in "admin only" mode)</span></label>
+                    <input type="tel" id="admin-number" placeholder="e.g. 2348103077073" />
+                </div>
+                <div class="field">
+                    <label class="lbl">Who gets AI replies</label>
+                    <select id="reply-mode">
+                        <option value="only">Admin only</option>
+                        <option value="all">Everyone</option>
+                    </select>
+                </div>
+                <button class="btn" onclick="saveGeneral()">Save</button>
+            </div>
+
+            <div class="panel">
+                <h2>Features</h2>
+                <div id="features-list"></div>
+            </div>
+        </section>
+
+        <!-- FILES -->
+        <section id="tab-files" class="hidden">
+            <div class="panel">
+                <h2>Saved media</h2>
+                <p class="muted" style="line-height:1.6;">
+                    View-once media, statuses and profile pictures are saved to your account.
+                </p>
+                <p style="margin-top:14px;"><a href="/my-files" target="_blank">Open my-files →</a></p>
+            </div>
+        </section>
+    </div>
+
+    <!-- Provider modal -->
+    <div class="modal-overlay" id="provider-modal">
         <div class="modal">
-            <h2>Add New Session</h2>
-
-            <div id="add-form-view">
-                <label>Label (optional)</label>
-                <input type="text" id="label-input" placeholder="e.g., My Work Number" />
-
-                <label>Phone Number</label>
-                <input type="tel" id="phone-input" placeholder="e.g., 2348103077073" />
-
-                <div class="actions">
-                    <button class="btn secondary" onclick="closeAddModal()">Cancel</button>
-                    <button class="btn" onclick="createSession()">Get Pairing Code</button>
-                </div>
-
-                <div id="add-error" class="error" style="display:none;"></div>
+            <h2 id="provider-modal-title">Add AI provider</h2>
+            <div class="field">
+                <label class="lbl">Provider type</label>
+                <select id="pv-type" onchange="toggleProviderFields()">
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic (Claude)</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="custom">Custom (OpenAI-compatible)</option>
+                </select>
             </div>
-
-            <div id="pairing-view" style="display:none;">
-                <div class="pairing-code">
-                    <div style="font-size:13px;color:#888;">Enter this code in WhatsApp</div>
-                    <div class="code" id="pairing-code-text">--------</div>
-                    <div class="hint">
-                        WhatsApp → Settings → Linked Devices → Link with Phone Number
-                    </div>
-                </div>
-                <div class="actions" style="justify-content:center;margin-top:20px;">
-                    <button class="btn" onclick="closeAddModal()">Done</button>
-                </div>
+            <div class="field">
+                <label class="lbl">Label</label>
+                <input type="text" id="pv-label" placeholder="e.g. My OpenAI key" />
+            </div>
+            <div class="field">
+                <label class="lbl">API key</label>
+                <input type="password" id="pv-key" placeholder="sk-… / AIza… / key" />
+            </div>
+            <div class="field">
+                <label class="lbl">Model</label>
+                <input type="text" id="pv-model" placeholder="gpt-4o-mini / claude-3-5-haiku / gemini-2.5-flash" />
+            </div>
+            <div class="field hidden" id="pv-baseurl-wrap">
+                <label class="lbl">Base URL</label>
+                <input type="text" id="pv-baseurl" placeholder="https://api.example.com/v1" />
+            </div>
+            <input type="hidden" id="pv-id" />
+            <div class="row" style="justify-content:flex-end;margin-top:8px;">
+                <button class="btn secondary" onclick="closeModal('provider-modal')">Cancel</button>
+                <button class="btn" onclick="saveProvider()">Save</button>
             </div>
         </div>
     </div>
+
+    <!-- Rule modal -->
+    <div class="modal-overlay" id="rule-modal">
+        <div class="modal">
+            <h2 id="rule-modal-title">Add rule</h2>
+            <div class="field">
+                <label class="lbl">When message matches</label>
+                <input type="text" id="rl-trigger" placeholder="e.g. price" />
+            </div>
+            <div class="field">
+                <label class="lbl">Match type</label>
+                <select id="rl-match">
+                    <option value="contains">contains</option>
+                    <option value="exact">exact</option>
+                    <option value="startsWith">starts with</option>
+                    <option value="endsWith">ends with</option>
+                    <option value="regex">regex</option>
+                </select>
+            </div>
+            <div class="field">
+                <label class="lbl">Reply</label>
+                <textarea id="rl-response" rows="3" placeholder="Reply text"></textarea>
+            </div>
+            <div class="field">
+                <label class="lbl">Enabled</label>
+                <select id="rl-enabled"><option value="true">Yes</option><option value="false">No</option></select>
+            </div>
+            <input type="hidden" id="rl-id" />
+            <div class="row" style="justify-content:flex-end;margin-top:8px;">
+                <button class="btn secondary" onclick="closeModal('rule-modal')">Cancel</button>
+                <button class="btn" onclick="saveRule()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Persona modal -->
+    <div class="modal-overlay" id="persona-modal">
+        <div class="modal">
+            <h2 id="persona-modal-title">Add persona</h2>
+            <div class="field">
+                <label class="lbl">Name <span class="muted">(used in chat as /ai/name)</span></label>
+                <input type="text" id="ps-name" placeholder="e.g. nora" />
+            </div>
+            <div class="field">
+                <label class="lbl">Instructions</label>
+                <textarea id="ps-instructions" rows="4" placeholder="You are Nora's assistant. Reply warmly and briefly..."></textarea>
+            </div>
+            <div class="field">
+                <label class="lbl">Provider</label>
+                <select id="ps-provider"></select>
+            </div>
+            <input type="hidden" id="ps-id" />
+            <div class="row" style="justify-content:flex-end;margin-top:8px;">
+                <button class="btn secondary" onclick="closeModal('persona-modal')">Cancel</button>
+                <button class="btn" onclick="savePersona()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auto-respond modal -->
+    <div class="modal-overlay" id="auto-modal">
+        <div class="modal">
+            <h2 id="auto-modal-title">Add auto-respond rule</h2>
+            <div class="field">
+                <label class="lbl">Contact phone <span class="muted">(with country code)</span></label>
+                <input type="tel" id="ar-contact" placeholder="e.g. 2348103077073" />
+            </div>
+            <div class="field">
+                <label class="lbl">Trigger words <span class="muted">(comma separated, matched anywhere in the message)</span></label>
+                <input type="text" id="ar-triggers" placeholder="hi, hello, hey" />
+            </div>
+            <div class="field">
+                <label class="lbl">Reply <span class="muted">(sent as-is; {name} = their name)</span></label>
+                <textarea id="ar-reply" rows="3" placeholder="Hey {name}! I'm not around right now, I'll get back to you soon 💚"></textarea>
+            </div>
+            <div class="field">
+                <label class="lbl">AI instructions <span class="muted">(optional — AI writes the reply using these)</span></label>
+                <textarea id="ar-instructions" rows="3" placeholder="Greet her back warmly as her lover and say I'm not currently here."></textarea>
+            </div>
+            <div class="field">
+                <label class="lbl">Enabled</label>
+                <select id="ar-enabled"><option value="true">Yes</option><option value="false">No</option></select>
+            </div>
+            <input type="hidden" id="ar-id" />
+            <div class="row" style="justify-content:flex-end;margin-top:8px;">
+                <button class="btn secondary" onclick="closeModal('auto-modal')">Cancel</button>
+                <button class="btn" onclick="saveAutoRule()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast">Saved</div>
 
     <script>
         const API = '/api';
+        let token = localStorage.getItem('wabot_token') || '';
+        let settings = null;
+        let autoRules = [];
+        let pendingSessionId = null;
+        let pollTimer = null;
+        let me = null;
 
-        let currentSessionId = null;
+        // ── helpers ──────────────────────────────────────────────
+        function esc(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+        function toast(msg, isErr) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = 'toast show' + (isErr ? ' err' : '');
+            clearTimeout(t._t);
+            t._t = setTimeout(() => { t.className = 'toast'; }, 2600);
+        }
+        async function api(path, opts = {}) {
+            const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+            if (token) headers['Authorization'] = 'Bearer ' + token;
+            const res = await fetch(API + path, Object.assign({}, opts, { headers }));
+            let data = null;
+            try { data = await res.json(); } catch { }
+            return { status: res.status, ok: res.ok, data };
+        }
+        function showAuth() {
+            document.getElementById('auth-view').classList.remove('hidden');
+            document.getElementById('app-view').classList.add('hidden');
+        }
+        function showApp() {
+            document.getElementById('auth-view').classList.add('hidden');
+            document.getElementById('app-view').classList.remove('hidden');
+        }
+        function openModal(id) { document.getElementById(id).classList.add('active'); }
+        function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
-        async function fetchSessions() {
-            try {
-                const res = await fetch(`${API}/sessions`);
-                const data = await res.json();
-                if (data.ok) {
-                    renderSessions(data.sessions);
-                    document.getElementById('last-refresh').textContent =
-                        'Last refresh: ' + new Date().toLocaleTimeString();
+        // ── auth ─────────────────────────────────────────────────
+        async function init() {
+            const status = await api('/settings/auth-status').catch(() => ({ data: null }));
+            const anyUser = status.data?.anyUser;
+            document.getElementById('auth-sub').textContent = anyUser
+                ? 'Sign in to manage your bot.'
+                : 'First time here — create the owner account.';
+            document.getElementById('register-btn').classList.toggle('hidden', !!anyUser);
+
+            if (token) {
+                const r = await api('/settings');
+                if (r.ok && r.data) { settings = r.data; enterApp(); return; }
+                token = ''; localStorage.removeItem('wabot_token');
+            }
+            showAuth();
+        }
+
+        async function doLogin() {
+            const phone = document.getElementById('auth-phone').value.replace(/\D/g, '');
+            const pin = document.getElementById('auth-pin').value.trim();
+            const err = document.getElementById('auth-error');
+            err.textContent = '';
+            const r = await api('/settings/pin-login', { method: 'POST', body: JSON.stringify({ phone, pin }) });
+            if (r.data?.ok) {
+                token = r.data.token; localStorage.setItem('wabot_token', token);
+                const s = await api('/settings');
+                settings = s.data; enterApp();
+            } else {
+                err.textContent = r.data?.error || 'Login failed';
+            }
+        }
+
+        async function doRegister() {
+            const phone = document.getElementById('auth-phone').value.replace(/\D/g, '');
+            const pin = document.getElementById('auth-pin').value.trim();
+            const err = document.getElementById('auth-error');
+            err.textContent = '';
+            const r = await api('/settings/register', { method: 'POST', body: JSON.stringify({ phone, pin }) });
+            if (r.data?.ok) {
+                token = r.data.token; localStorage.setItem('wabot_token', token);
+                const s = await api('/settings');
+                settings = s.data; enterApp();
+            } else {
+                err.textContent = r.data?.error || 'Registration failed';
+            }
+        }
+
+        function logout() {
+            token = ''; localStorage.removeItem('wabot_token');
+            if (pollTimer) clearInterval(pollTimer);
+            showAuth();
+        }
+
+        function enterApp() {
+            showApp();
+            document.getElementById('whoami').textContent = 'Signed in';
+            renderAi();
+            renderGeneral();
+            renderFeatures();
+            refreshSessions();
+            loadAutoRules();
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = setInterval(refreshSessions, 2500);
+        }
+
+        function switchTab(name) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+            ['sessions', 'ai', 'autorespond', 'settings', 'files'].forEach(n => {
+                document.getElementById('tab-' + n).classList.toggle('hidden', n !== name);
+            });
+        }
+
+        // ── sessions ─────────────────────────────────────────────
+        async function refreshSessions() {
+            const r = await api('/sessions');
+            if (r.status === 401) return;
+            const sessions = r.data?.sessions || [];
+            renderSessions(sessions);
+            const connected = sessions.filter(s => s.status === 'connected').length;
+            document.getElementById('bot-status').textContent = `${connected}/${sessions.length} connected`;
+            if (pendingSessionId) {
+                const p = sessions.find(s => s.id === pendingSessionId);
+                if (p && p.status === 'connected') {
+                    toast('✅ Linked successfully!');
+                    pendingSessionId = null;
                 }
-            } catch (e) {
-                console.error('Fetch failed:', e);
             }
         }
 
         function renderSessions(sessions) {
             const grid = document.getElementById('sessions-grid');
-
             if (!sessions.length) {
-                grid.innerHTML = '<div class="empty"><h2>No sessions yet</h2><p>Click "Add Session" to get started.</p></div>';
+                grid.innerHTML = '<div class="empty">No sessions yet — link a number above.</div>';
                 return;
             }
-
-            grid.innerHTML = sessions.map(s => `
-    <div class="card">
-      <h3>${escapeHtml(s.label || s.id)}</h3>
-      <span class="status ${s.status}">${s.status}</span>
-
-      ${s.phoneNumber ? `<div class="info">📱 <strong>+${s.phoneNumber}</strong></div>` : ''}
-      <div class="info">🆔 <strong>${escapeHtml(s.id)}</strong></div>
-      <div class="info">📁 Saved: <strong>${s.savedFiles?.length || 0}</strong></div>
-
-      ${s.qrDataUrl ? `<div class="qr-container"><img src="${s.qrDataUrl}" alt="QR" /></div>` : ''}
-
-      <div class="actions">
-        <button class="btn secondary" onclick="copyId('${s.id}')">Copy ID</button>
-        ${s.status !== 'connected' ? `<button class="btn danger" onclick="deleteSession('${s.id}')">Delete</button>` : ''}
-      </div>
-    </div>
-  `).join('');
+            grid.innerHTML = sessions.map(s => {
+                const pending = s.id === pendingSessionId;
+                return `
+                <div class="card ${pending ? 'highlight' : ''}">
+                    <h3>${esc(s.label || s.id)}</h3>
+                    <span class="status ${esc(s.status)}">${esc(s.status)}</span>
+                    ${s.phoneNumber ? `<div class="info">📱 Linked: <strong>+${esc(s.phoneNumber)}</strong></div>` : ''}
+                    <div class="info">🆔 ${esc(s.id)}</div>
+                    ${s.pairingCode ? `<div class="code-box"><div class="code">${esc(s.pairingCode)}</div><div class="hint">WhatsApp → Linked Devices → Link with Phone Number</div></div>` : ''}
+                    ${s.qrDataUrl ? `<div class="qr-wrap"><img src="${s.qrDataUrl}" alt="QR" /></div>` : ''}
+                    <div class="row" style="margin-top:12px;">
+                        <button class="btn secondary sm" onclick="restartSession('${esc(s.id)}')">Restart</button>
+                        <button class="btn danger sm" onclick="deleteSession('${esc(s.id)}')">Delete</button>
+                    </div>
+                </div>`;
+            }).join('');
         }
 
-        function escapeHtml(str) {
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
+        async function addSession() {
+            const phone = document.getElementById('new-phone').value.replace(/\D/g, '');
+            const err = document.getElementById('add-error');
+            err.textContent = '';
+            if (phone.length < 10) { err.textContent = 'Enter a valid phone number with country code.'; return; }
+
+            const id = 'user_' + phone;
+            const btn = document.getElementById('add-session-btn');
+            btn.disabled = true; btn.textContent = 'Linking…';
+            pendingSessionId = id;
+
+            const r = await api('/sessions', { method: 'POST', body: JSON.stringify({ id, phone }) });
+            if (!r.data?.ok) {
+                err.textContent = r.data?.error || 'Failed to start linking';
+                pendingSessionId = null;
+            } else {
+                document.getElementById('new-phone').value = '';
+                toast('Starting — watch for the code/QR below');
+                refreshSessions();
+            }
+            btn.disabled = false; btn.textContent = 'Get pairing code';
         }
 
-        function copyId(id) {
-            navigator.clipboard.writeText(id);
-            alert('Session ID copied: ' + id);
+        async function restartSession(id) {
+            await api('/sessions/' + encodeURIComponent(id) + '/restart', { method: 'POST' });
+            toast('Restarting…');
+            refreshSessions();
         }
 
         async function deleteSession(id) {
-            if (!confirm(`Delete session "${id}"?\n\nThis will log out the WhatsApp account and delete its auth.`)) return;
-            try {
-                await fetch(`${API}/sessions/${id}`, { method: 'DELETE' });
-                fetchSessions();
-            } catch (e) {
-                alert('Delete failed: ' + e.message);
-            }
+            if (!confirm('Stop and delete session ' + id + '?')) return;
+            await api('/sessions/' + encodeURIComponent(id), { method: 'DELETE' });
+            toast('Deleted');
+            refreshSessions();
         }
 
-        function openAddModal() {
-            currentSessionId = null;
-            document.getElementById('add-form-view').style.display = 'block';
-            document.getElementById('pairing-view').style.display = 'none';
-            document.getElementById('add-error').style.display = 'none';
-            document.getElementById('label-input').value = '';
-            document.getElementById('phone-input').value = '';
-            document.getElementById('add-modal').classList.add('active');
+        // ── AI ───────────────────────────────────────────────────
+        function renderAi() {
+            const sel = document.getElementById('default-provider');
+            const provs = settings.aiProviders || [];
+            sel.innerHTML = '<option value="">(none)</option>' + provs.map(p =>
+                `<option value="${esc(p.id)}" ${p.id === settings.defaultAiProvider ? 'selected' : ''}>${esc(p.label || p.provider)} — ${esc(p.model)}</option>`
+            ).join('');
+            document.getElementById('system-prompt').value = settings.aiSystemPrompt || '';
+            renderProviders();
+            renderRules();
+            renderPersonas();
         }
 
-        function closeAddModal() {
-            document.getElementById('add-modal').classList.remove('active');
-            fetchSessions();
+        function renderProviders() {
+            const list = document.getElementById('providers-list');
+            const provs = settings.aiProviders || [];
+            if (!provs.length) { list.innerHTML = '<div class="empty">No providers yet. Add your first API key above.</div>'; return; }
+            list.innerHTML = provs.map(p => {
+                const masked = p.apiKey ? (p.apiKey.slice(0, 4) + '…' + p.apiKey.slice(-4)) : '(no key)';
+                return `<div class="list-item">
+                    <div class="grow">
+                        <div class="title">${esc(p.label || p.provider)} <span class="badge">${esc(p.provider)}</span></div>
+                        <div class="desc">${esc(p.model)} · key ${esc(masked)}${p.id === settings.defaultAiProvider ? ' · <strong>default</strong>' : ''}</div>
+                    </div>
+                    <button class="btn secondary sm" onclick="openProviderModal('${esc(p.id)}')">Edit</button>
+                    <button class="btn danger sm" onclick="deleteProvider('${esc(p.id)}')">Delete</button>
+                </div>`;
+            }).join('');
         }
 
-        async function createSession() {
-            const label = document.getElementById('label-input').value.trim();
-            const phone = document.getElementById('phone-input').value.trim();
-            const errEl = document.getElementById('add-error');
-
-            if (!phone) {
-                errEl.textContent = 'Please enter a phone number.';
-                errEl.style.display = 'block';
-                return;
-            }
-
-            const sessionId = `user_${phone.replace(/\D/g, '')}`;
-
-            errEl.style.display = 'none';
-
-            try {
-                // 1. Create the session
-                const createRes = await fetch(`${API}/sessions`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: sessionId, label: label || `+${phone}` })
-                });
-                const createData = await createRes.json();
-                if (!createData.ok) throw new Error(createData.error || 'Failed to create session');
-
-                // 2. Wait a moment for the socket to initialize
-                await new Promise(r => setTimeout(r, 2500));
-
-                // 3. Request pairing code
-                const pairRes = await fetch(`${API}/sessions/${sessionId}/pairing`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone })
-                });
-                const pairData = await pairRes.json();
-                if (!pairData.ok) throw new Error(pairData.error || 'Failed to get pairing code');
-
-                // 4. Show the code
-                document.getElementById('add-form-view').style.display = 'none';
-                document.getElementById('pairing-view').style.display = 'block';
-                document.getElementById('pairing-code-text').textContent = pairData.code;
-            } catch (e) {
-                errEl.textContent = e.message;
-                errEl.style.display = 'block';
-            }
+        function renderRules() {
+            const list = document.getElementById('rules-list');
+            const rules = settings.aiRules || [];
+            if (!rules.length) { list.innerHTML = '<div class="empty">No rules yet.</div>'; return; }
+            list.innerHTML = rules.map(r => `<div class="list-item">
+                <div class="grow">
+                    <div class="title">“${esc(r.trigger)}” → ${esc(r.response)}</div>
+                    <div class="desc">${esc(r.matchType)} · ${r.enabled ? 'enabled' : 'disabled'}</div>
+                </div>
+                <button class="btn secondary sm" onclick="openRuleModal('${esc(r.id)}')">Edit</button>
+                <button class="btn danger sm" onclick="deleteRule('${esc(r.id)}')">Delete</button>
+            </div>`).join('');
         }
 
-        // Auto-refresh every 5 seconds
-        fetchSessions();
-        setInterval(fetchSessions, 5000);
+        function toggleProviderFields() {
+            const t = document.getElementById('pv-type').value;
+            document.getElementById('pv-baseurl-wrap').classList.toggle('hidden', t !== 'custom');
+        }
+
+        function openProviderModal(id) {
+            const p = id ? (settings.aiProviders || []).find(x => x.id === id) : null;
+            document.getElementById('provider-modal-title').textContent = p ? 'Edit provider' : 'Add AI provider';
+            document.getElementById('pv-type').value = p?.provider || 'openai';
+            document.getElementById('pv-label').value = p?.label || '';
+            document.getElementById('pv-key').value = p?.apiKey || '';
+            document.getElementById('pv-model').value = p?.model || '';
+            document.getElementById('pv-baseurl').value = p?.baseUrl || '';
+            document.getElementById('pv-id').value = p?.id || '';
+            toggleProviderFields();
+            openModal('provider-modal');
+        }
+
+        async function saveProvider() {
+            const id = document.getElementById('pv-id').value;
+            const entry = {
+                id: id || 'provider_' + Date.now(),
+                provider: document.getElementById('pv-type').value,
+                label: document.getElementById('pv-label').value.trim(),
+                apiKey: document.getElementById('pv-key').value.trim(),
+                model: document.getElementById('pv-model').value.trim(),
+                baseUrl: document.getElementById('pv-baseurl').value.trim() || undefined,
+            };
+            if (!entry.apiKey) return toast('API key is required', true);
+            if (!entry.model) return toast('Model is required', true);
+
+            settings.aiProviders = settings.aiProviders || [];
+            const idx = settings.aiProviders.findIndex(x => x.id === entry.id);
+            if (idx >= 0) settings.aiProviders[idx] = entry; else settings.aiProviders.push(entry);
+            if (!settings.defaultAiProvider) settings.defaultAiProvider = entry.id;
+
+            const ok = await persist();
+            if (ok) { closeModal('provider-modal'); renderAi(); toast('Provider saved'); }
+        }
+
+        async function deleteProvider(id) {
+            if (!confirm('Delete this provider?')) return;
+            settings.aiProviders = (settings.aiProviders || []).filter(p => p.id !== id);
+            if (settings.defaultAiProvider === id) settings.defaultAiProvider = settings.aiProviders[0]?.id || '';
+            const ok = await persist();
+            if (ok) { renderAi(); toast('Provider deleted'); }
+        }
+
+        function openRuleModal(id) {
+            const r = id ? (settings.aiRules || []).find(x => x.id === id) : null;
+            document.getElementById('rule-modal-title').textContent = r ? 'Edit rule' : 'Add rule';
+            document.getElementById('rl-trigger').value = r?.trigger || '';
+            document.getElementById('rl-match').value = r?.matchType || 'contains';
+            document.getElementById('rl-response').value = r?.response || '';
+            document.getElementById('rl-enabled').value = r && r.enabled === false ? 'false' : 'true';
+            document.getElementById('rl-id').value = r?.id || '';
+            openModal('rule-modal');
+        }
+
+        async function saveRule() {
+            const id = document.getElementById('rl-id').value;
+            const trigger = document.getElementById('rl-trigger').value.trim();
+            const response = document.getElementById('rl-response').value.trim();
+            if (!trigger || !response) return toast('Trigger and reply are required', true);
+            const rule = {
+                id: id || 'rule_' + Date.now(),
+                trigger, response,
+                matchType: document.getElementById('rl-match').value,
+                enabled: document.getElementById('rl-enabled').value === 'true',
+                createdAt: Date.now(),
+            };
+            settings.aiRules = settings.aiRules || [];
+            const idx = settings.aiRules.findIndex(x => x.id === rule.id);
+            if (idx >= 0) settings.aiRules[idx] = rule; else settings.aiRules.push(rule);
+            const ok = await persist();
+            if (ok) { closeModal('rule-modal'); renderRules(); toast('Rule saved'); }
+        }
+
+        async function deleteRule(id) {
+            if (!confirm('Delete this rule?')) return;
+            settings.aiRules = (settings.aiRules || []).filter(r => r.id !== id);
+            const ok = await persist();
+            if (ok) { renderRules(); toast('Rule deleted'); }
+        }
+
+        async function saveAiSettings() {
+            settings.defaultAiProvider = document.getElementById('default-provider').value;
+            settings.aiSystemPrompt = document.getElementById('system-prompt').value;
+            if (await persist()) toast('AI settings saved');
+        }
+
+        // ── personas ─────────────────────────────────────────────
+        function renderPersonas() {
+            const list = document.getElementById('personas-list');
+            const ps = settings.personas || [];
+            if (!ps.length) { list.innerHTML = '<div class="empty">No personas yet. Add one, then type /ai/name your question in WhatsApp.</div>'; return; }
+            list.innerHTML = ps.map(p => {
+                const prov = (settings.aiProviders || []).find(x => x.id === p.providerId);
+                const short = (p.instructions || '').slice(0, 110) + ((p.instructions || '').length > 110 ? '…' : '');
+                return `<div class="list-item">
+                    <div class="grow">
+                        <div class="title">/ai/${esc(p.name)}</div>
+                        <div class="desc">${esc(short)} · ${prov ? esc(prov.label || prov.provider) : 'default provider'}</div>
+                    </div>
+                    <button class="btn secondary sm" onclick="openPersonaModal('${esc(p.id)}')">Edit</button>
+                    <button class="btn danger sm" onclick="deletePersona('${esc(p.id)}')">Delete</button>
+                </div>`;
+            }).join('');
+        }
+
+        function openPersonaModal(id) {
+            const p = id ? (settings.personas || []).find(x => x.id === id) : null;
+            document.getElementById('persona-modal-title').textContent = p ? 'Edit persona' : 'Add persona';
+            document.getElementById('ps-name').value = p?.name || '';
+            document.getElementById('ps-instructions').value = p?.instructions || '';
+            const sel = document.getElementById('ps-provider');
+            sel.innerHTML = '<option value="">(default)</option>' + (settings.aiProviders || []).map(pr =>
+                `<option value="${esc(pr.id)}">${esc(pr.label || pr.provider)} — ${esc(pr.model)}</option>`
+            ).join('');
+            sel.value = p?.providerId || '';
+            document.getElementById('ps-id').value = p?.id || '';
+            openModal('persona-modal');
+        }
+
+        async function savePersona() {
+            const id = document.getElementById('ps-id').value;
+            const name = document.getElementById('ps-name').value.trim().toLowerCase().replace(/\s+/g, '-');
+            const instructions = document.getElementById('ps-instructions').value.trim();
+            if (!name) return toast('Name is required', true);
+            if (!instructions) return toast('Instructions are required', true);
+            const entry = {
+                id: id || 'persona_' + Date.now(),
+                name, instructions,
+                providerId: document.getElementById('ps-provider').value || undefined,
+            };
+            settings.personas = settings.personas || [];
+            const idx = settings.personas.findIndex(x => x.id === entry.id);
+            if (idx >= 0) settings.personas[idx] = entry; else settings.personas.push(entry);
+            if (await persist()) { closeModal('persona-modal'); renderAi(); toast('Persona saved'); }
+        }
+
+        async function deletePersona(id) {
+            if (!confirm('Delete this persona?')) return;
+            settings.personas = (settings.personas || []).filter(p => p.id !== id);
+            if (await persist()) { renderAi(); toast('Persona deleted'); }
+        }
+
+        // ── auto-respond ─────────────────────────────────────────
+        async function loadAutoRules() {
+            const r = await api('/auto-respond');
+            if (r.status === 401) return;
+            autoRules = r.data?.rules || [];
+            renderAutoRules();
+        }
+
+        function renderAutoRules() {
+            const list = document.getElementById('auto-list');
+            if (!list) return;
+            if (!autoRules.length) { list.innerHTML = '<div class="empty">No auto-respond rules yet.</div>'; return; }
+            list.innerHTML = autoRules.map(r => `<div class="list-item">
+                <div class="grow">
+                    <div class="title">+${esc(r.contact)} — ${esc((r.triggers || []).join(', '))}</div>
+                    <div class="desc">${r.instructions ? 'AI: ' + esc(r.instructions) : esc(r.reply)} · ${r.enabled ? 'enabled' : 'disabled'}</div>
+                </div>
+                <button class="btn secondary sm" onclick="openAutoRuleModal('${esc(r.id)}')">Edit</button>
+                <button class="btn danger sm" onclick="deleteAutoRule('${esc(r.id)}')">Delete</button>
+            </div>`).join('');
+        }
+
+        function openAutoRuleModal(id) {
+            const r = id ? autoRules.find(x => x.id === id) : null;
+            document.getElementById('auto-modal-title').textContent = r ? 'Edit auto-respond rule' : 'Add auto-respond rule';
+            document.getElementById('ar-contact').value = r?.contact || '';
+            document.getElementById('ar-triggers').value = (r?.triggers || []).join(', ');
+            document.getElementById('ar-reply').value = r?.reply || '';
+            document.getElementById('ar-instructions').value = r?.instructions || '';
+            document.getElementById('ar-enabled').value = r && r.enabled === false ? 'false' : 'true';
+            document.getElementById('ar-id').value = r?.id || '';
+            openModal('auto-modal');
+        }
+
+        async function saveAutoRule() {
+            const body = {
+                id: document.getElementById('ar-id').value || undefined,
+                contact: document.getElementById('ar-contact').value,
+                triggers: document.getElementById('ar-triggers').value.split(',').map(t => t.trim()).filter(Boolean),
+                reply: document.getElementById('ar-reply').value.trim(),
+                instructions: document.getElementById('ar-instructions').value.trim() || undefined,
+                enabled: document.getElementById('ar-enabled').value === 'true',
+            };
+            if (!body.contact.replace(/\D/g, '')) return toast('Contact number is required', true);
+            if (!body.triggers.length) return toast('Add at least one trigger word', true);
+            if (!body.reply && !body.instructions) return toast('Add a reply or AI instructions', true);
+            const r = await api('/auto-respond', { method: 'POST', body: JSON.stringify(body) });
+            if (!r.data?.ok) return toast(r.data?.error || 'Save failed', true);
+            closeModal('auto-modal');
+            await loadAutoRules();
+            toast('Rule saved');
+        }
+
+        async function deleteAutoRule(id) {
+            if (!confirm('Delete this auto-respond rule?')) return;
+            const r = await api('/auto-respond/' + encodeURIComponent(id), { method: 'DELETE' });
+            if (!r.ok) return toast(r.data?.error || 'Delete failed', true);
+            await loadAutoRules();
+            toast('Rule deleted');
+        }
+
+        // ── general / features ───────────────────────────────────
+        const FEATURE_LABELS = {
+            viewOnce: '📸 Auto-save view-once media',
+            aiChat: '🤖 AI chat replies',
+            autoReact: '❤️ Auto-react to statuses',
+            autoPresence: '✍️ Show typing / stay online',
+            antiDelete: '🗑️ Anti-delete (save deleted messages)',
+            saveStatus: '📊 Save statuses',
+            savePP: '🖼️ Save profile pictures',
+            saveProfile: '👤 Save profiles',
+            antiDownload: '⬇️ Auto-download status',
+            antiLink: '🚫 Anti-link (remove links)',
+            welcomeGoodbye: '👋 Welcome / goodbye messages',
+            customCommands: '⌨️ Custom commands',
+        };
+
+        function renderGeneral() {
+            document.getElementById('admin-number').value = settings.adminNumber || '';
+            document.getElementById('reply-mode').value = settings.features?.replyMode || 'only';
+        }
+
+        function renderFeatures() {
+            const list = document.getElementById('features-list');
+            const feats = settings.features || {};
+            list.innerHTML = Object.keys(FEATURE_LABELS).map(key => {
+                const on = !!feats[key];
+                return `<div class="toggle-row">
+                    <span>${esc(FEATURE_LABELS[key])}</span>
+                    <div class="switch ${on ? 'on' : ''}" data-feature="${key}" onclick="toggleFeature(this)"></div>
+                </div>`;
+            }).join('');
+        }
+
+        async function toggleFeature(el) {
+            el.classList.toggle('on');
+            const key = el.dataset.feature;
+            settings.features = settings.features || {};
+            settings.features[key] = el.classList.contains('on');
+            if (await persist()) toast('Saved');
+        }
+
+        async function saveGeneral() {
+            settings.adminNumber = document.getElementById('admin-number').value.replace(/\D/g, '');
+            settings.features = settings.features || {};
+            settings.features.replyMode = document.getElementById('reply-mode').value;
+            if (await persist()) toast('Settings saved');
+        }
+
+        async function persist() {
+            const r = await api('/settings', { method: 'POST', body: JSON.stringify(settings) });
+            if (r.data?.ok) { settings = r.data.settings; return true; }
+            toast(r.data?.error || 'Save failed', true);
+            return false;
+        }
+
+        init();
     </script>
 </body>
 

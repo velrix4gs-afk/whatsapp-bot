@@ -15,6 +15,10 @@ import pino from "pino";
 import sharp from "sharp";
 import { createClient } from "@supabase/supabase-js";
 import ws from "ws";
+import { loadSettings, getActiveAiProvider, getPersona, getPersonaProvider, type BotSettings } from "./lib/settings";
+import { callAiProvider, firstMatchingRule } from "./lib/ai";
+import { getChatToggles, setChatToggle } from "./lib/chat-settings";
+import { listAutoRules, matchAutoRule } from "./lib/auto-respond";
 
 const SESSION_ID = process.env.WORKER_SESSION_ID || "";
 const PAIRING_PHONE = process.env.WORKER_PHONE || "";
@@ -28,11 +32,14 @@ const MEDIA_DIR = path.join(BASE_DIR, "sessions", SESSION_ID, "media");
 fs.mkdirSync(AUTH_DIR, { recursive: true });
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
-const supabase = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_ANON_KEY!,
-    { realtime: { transport: ws as any } }
-);
+let supabase: ReturnType<typeof createClient> | null = null;
+try {
+    if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
+        supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, { realtime: { transport: ws as any } });
+    }
+} catch (e) {
+    console.error(`[${SESSION_ID}] Supabase init failed:`, e);
+}
 
 function ipc(msg: any) { try { if (process.send && process.connected) process.send(msg); } catch { } }
 function log(text: string) { console.log(`[${SESSION_ID}] ${text}`); ipc({ type: "log", text }); }
@@ -41,6 +48,18 @@ let pairingRequested = false;
 let sock: any = null;
 let stopping = false;
 let autoTypingEnabled = true;
+let reconnectTimer: NodeJS.Timeout | null = null;
+let generation = 0;
+
+// ── Live settings (re-read from disk, lightly cached) ──────────────────
+let cachedSettings: BotSettings | null = null;
+let cachedAt = 0;
+function settings(): BotSettings {
+    if (!cachedSettings || Date.now() - cachedAt > 2000) {
+        try { cachedSettings = loadSettings(); cachedAt = Date.now(); } catch { cachedSettings = cachedSettings ?? ({} as BotSettings); }
+    }
+    return cachedSettings as BotSettings;
+}
 
 function mimeToExt(mime?: string | null): string {
     if (!mime) return "bin";
@@ -64,6 +83,13 @@ function getOwnerJid(): string | null {
     return null;
 }
 
+/** The linked account's phone digits, used as the storage folder so /my-files matches. */
+function storagePhone(): string {
+    const raw = sock?.user?.id ?? "";
+    const digits = raw.split(":")[0]?.split("@")[0] ?? "";
+    return /^\d+$/.test(digits) ? digits : PHONE;
+}
+
 function isFromMe(msg: any): boolean {
     const ownerJid = getOwnerJid();
     if (!ownerJid) return false;
@@ -71,8 +97,21 @@ function isFromMe(msg: any): boolean {
     return sender === ownerJid || msg.key.fromMe === true;
 }
 
+/** Unwrap ephemeral / viewOnce envelopes to reach the real content. */
+function unwrap(message: any): any {
+    let cur = message;
+    for (let i = 0; i < 4 && cur; i++) {
+        if (cur.ephemeralMessage?.message) { cur = cur.ephemeralMessage.message; continue; }
+        if (cur.viewOnceMessage?.message) { cur = cur.viewOnceMessage.message; continue; }
+        if (cur.viewOnceMessageV2?.message) { cur = cur.viewOnceMessageV2.message; continue; }
+        if (cur.viewOnceMessageV2Extension?.message) { cur = cur.viewOnceMessageV2Extension.message; continue; }
+        break;
+    }
+    return cur;
+}
+
 function getText(msg: any): string {
-    const m = msg.message;
+    const m = unwrap(msg.message);
     if (!m) return "";
     return m.conversation || m.extendedTextMessage?.text || m.imageMessage?.caption || m.videoMessage?.caption || "";
 }
@@ -85,45 +124,58 @@ async function downloadMedia(mediaMsg: MediaMsg, mediaType: "image" | "video" | 
 }
 
 async function saveToSupabase(buffer: Buffer, filename: string, mime: string): Promise<boolean> {
+    if (!supabase) { log("⚠️ Supabase not configured — saved to local only"); return false; }
     try {
-        const storagePath = `${PHONE}/${filename}`;
+        const storagePath = `${storagePhone()}/${filename}`;
         const { error } = await supabase.storage.from("saved_media").upload(storagePath, buffer, { contentType: mime, upsert: false });
-        return !error;
-    } catch { return false; }
+        if (error) { log(`❌ Upload failed: ${error.message}`); return false; }
+        return true;
+    } catch (e) {
+        log(`❌ Upload threw: ${e instanceof Error ? e.message : String(e)}`);
+        return false;
+    }
 }
 
 // ── Features ───────────────────────────────────────────────────────────
 const viewOnceCache = new Map<string, { mediaMsg: MediaMsg; mediaType: "image" | "video" | "audio"; senderJid: string }>();
 
+function extractViewOnceMedia(m: any): { media: MediaMsg; type: "image" | "video" | "audio" } | null {
+    const c = unwrap(m);
+    if (!c) return null;
+    const inner = c.viewOnceMessage?.message ?? c.viewOnceMessageV2?.message ?? c.viewOnceMessageV2Extension?.message ?? c;
+    if (inner?.imageMessage) return { media: inner.imageMessage, type: "image" };
+    if (inner?.videoMessage) return { media: inner.videoMessage, type: "video" };
+    if (inner?.audioMessage) return { media: inner.audioMessage, type: "audio" };
+    // Bare view-once without a wrapper
+    if (c?.imageMessage?.viewOnce) return { media: c.imageMessage, type: "image" };
+    if (c?.videoMessage?.viewOnce) return { media: c.videoMessage, type: "video" };
+    return null;
+}
+
 async function handleViewOnce(msg: any, chatJid: string) {
-    const m = msg.message;
-    if (m.conversation || m.extendedTextMessage?.text) return;
+    if (!settings().features?.viewOnce) return;
+    if (chatJid.endsWith("@g.us") || msg.key.fromMe) return; // personal chats only, never your own
+    if (!getChatToggles(chatJid).vv) return;
+    const extracted = extractViewOnceMedia(msg.message);
+    if (!extracted) return;
 
-    const inner = m.viewOnceMessage?.message ?? m.viewOnceMessageV2?.message ?? m.viewOnceMessageV2Extension?.message;
-    let media, type;
-    if (inner?.imageMessage) { media = inner.imageMessage; type = "image"; }
-    else if (inner?.videoMessage) { media = inner.videoMessage; type = "video"; }
-    else if (inner?.audioMessage) { media = inner.audioMessage; type = "audio"; }
-
-    if (!media) return;
     const ownerJid = getOwnerJid();
     if (!ownerJid) return;
 
-    if (msg.key.id) viewOnceCache.set(msg.key.id, { mediaMsg: media, mediaType: type, senderJid: chatJid });
+    if (msg.key.id) viewOnceCache.set(msg.key.id, { mediaMsg: extracted.media, mediaType: extracted.type, senderJid: chatJid });
 
     try {
-        const buffer = await downloadMedia(media, type);
-        const ext = mimeToExt(media.mimetype);
-        const success = await saveToSupabase(buffer, `vo_${Date.now()}.${ext}`, media.mimetype);
+        const buffer = await downloadMedia(extracted.media, extracted.type);
+        const ext = mimeToExt(extracted.media.mimetype);
+        const success = await saveToSupabase(buffer, `vo_${Date.now()}.${ext}`, extracted.media.mimetype ?? "application/octet-stream");
 
-        // 🔑 Auto-save DM (No URL, just image and web link)
         const webLink = `${process.env.PUBLIC_URL}/my-files`;
-        const caption = `🔓 *View-once ${type}* (auto-saved)\nFrom: +${chatJid.split("@")[0]}\n\n📁 View all files here: ${webLink}` + (success ? "" : "\n_⚠️ Cloud upload failed_");
+        const caption = `🔓 *View-once ${extracted.type}* (auto-saved)\nFrom: +${chatJid.split("@")[0]}\n\n📁 View all files: ${webLink}` + (success ? "" : "\n_⚠️ Cloud upload failed_");
 
-        if (type === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
-        else if (type === "video") await sock.sendMessage(ownerJid, { video: buffer, caption });
-        else await sock.sendMessage(ownerJid, { audio: buffer, mimetype: media.mimetype, ptt: true });
-    } catch (e) { log(`VO failed: ${e}`); }
+        if (extracted.type === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
+        else if (extracted.type === "video") await sock.sendMessage(ownerJid, { video: buffer, caption });
+        else await sock.sendMessage(ownerJid, { audio: buffer, mimetype: extracted.media.mimetype, ptt: true });
+    } catch (e) { log(`VO failed: ${e instanceof Error ? e.message : String(e)}`); }
 }
 
 async function handleReaction(msg: any) {
@@ -137,28 +189,30 @@ async function handleReaction(msg: any) {
     try {
         const buffer = await downloadMedia(cached.mediaMsg, cached.mediaType);
         const ext = mimeToExt(cached.mediaMsg.mimetype);
-        await saveToSupabase(buffer, `vo_react_${Date.now()}.${ext}`, cached.mediaMsg.mimetype);
+        await saveToSupabase(buffer, `vo_react_${Date.now()}.${ext}`, cached.mediaMsg.mimetype ?? "application/octet-stream");
 
         const webLink = `${process.env.PUBLIC_URL}/my-files`;
         const caption = `🔓 *View-once ${cached.mediaType}* (via reaction)\nFrom: +${cached.senderJid.split("@")[0]}\n\n📁 View: ${webLink}`;
 
-        if (cached.mediaType === "image") await sock.sendMessage(getOwnerJid()!, { image: buffer, caption });
-        else if (cached.mediaType === "video") await sock.sendMessage(getOwnerJid()!, { video: buffer, caption });
-        else await sock.sendMessage(getOwnerJid()!, { audio: buffer, mimetype: cached.mediaMsg.mimetype, ptt: true });
-    } catch (e) { log(`Reaction failed: ${e}`); }
+        const ownerJid = getOwnerJid()!;
+        if (cached.mediaType === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
+        else if (cached.mediaType === "video") await sock.sendMessage(ownerJid, { video: buffer, caption });
+        else await sock.sendMessage(ownerJid, { audio: buffer, mimetype: cached.mediaMsg.mimetype, ptt: true });
+    } catch (e) { log(`Reaction failed: ${e instanceof Error ? e.message : String(e)}`); }
 }
 
 async function handleSaveStatus(msg: any, chatJid: string) {
     const ctx = msg.message?.extendedTextMessage?.contextInfo;
     if (!ctx?.quotedMessage || ctx.remoteJid !== "status@broadcast") return;
-    const media = ctx.quotedMessage.imageMessage || ctx.quotedMessage.videoMessage || ctx.quotedMessage.audioMessage;
+    const q = unwrap(ctx.quotedMessage);
+    const media = q.imageMessage || q.videoMessage || q.audioMessage;
     if (!media) return;
 
     try {
-        const type = ctx.quotedMessage.imageMessage ? "image" : ctx.quotedMessage.videoMessage ? "video" : "audio";
+        const type = q.imageMessage ? "image" : q.videoMessage ? "video" : "audio";
         const buffer = await downloadMedia(media, type);
         const ext = mimeToExt(media.mimetype);
-        await saveToSupabase(buffer, `status_${Date.now()}.${ext}`, media.mimetype);
+        await saveToSupabase(buffer, `status_${Date.now()}.${ext}`, media.mimetype ?? "application/octet-stream");
 
         await sock.sendMessage(chatJid, { text: "✅ Status saved" });
         const ownerJid = getOwnerJid();
@@ -170,7 +224,7 @@ async function handleSaveStatus(msg: any, chatJid: string) {
             else if (type === "video") await sock.sendMessage(ownerJid, { video: buffer, caption });
             else await sock.sendMessage(ownerJid, { audio: buffer, mimetype: media.mimetype, ptt: true });
         }
-    } catch (e) { log(`Status save failed: ${e}`); }
+    } catch (e) { log(`Status save failed: ${e instanceof Error ? e.message : String(e)}`); }
 }
 
 async function handleSavePP(msg: any, chatJid: string, args: string[]) {
@@ -183,80 +237,228 @@ async function handleSavePP(msg: any, chatJid: string, args: string[]) {
 
         const webLink = `${process.env.PUBLIC_URL}/my-files`;
         await sock.sendMessage(chatJid, { text: `✅ Profile pic saved\n📁 View: ${webLink}` });
-    } catch (e) { log(`SavePP failed: ${e}`); }
+    } catch (e) { log(`SavePP failed: ${e instanceof Error ? e.message : String(e)}`); }
 }
 
 async function handleVv(msg: any, chatJid: string) {
     const ctx = msg.message?.extendedTextMessage?.contextInfo;
     if (!ctx?.quotedMessage) return;
-    const inner = ctx.quotedMessage.viewOnceMessage?.message ?? ctx.quotedMessage.viewOnceMessageV2?.message ?? ctx.quotedMessage;
+    const inner = unwrap(ctx.quotedMessage);
     const media = inner.imageMessage || inner.videoMessage;
     if (!media) return;
     try {
         const type = inner.imageMessage ? "image" : "video";
         const buffer = await downloadMedia(media, type);
         const ext = mimeToExt(media.mimetype);
-        await saveToSupabase(buffer, `vv_${Date.now()}.${ext}`, media.mimetype);
+        await saveToSupabase(buffer, `vv_${Date.now()}.${ext}`, media.mimetype ?? "application/octet-stream");
 
         const webLink = `${process.env.PUBLIC_URL}/my-files`;
         const caption = `🔓 *View-once ${type} (.vv)*\n\n📁 View: ${webLink}`;
-        if (type === "image") await sock.sendMessage(getOwnerJid()!, { image: buffer, caption });
-        else await sock.sendMessage(getOwnerJid()!, { video: buffer, caption });
-    } catch (e) { log(`vv failed: ${e}`); }
+        const ownerJid = getOwnerJid()!;
+        if (type === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
+        else await sock.sendMessage(ownerJid, { video: buffer, caption });
+    } catch (e) { log(`vv failed: ${e instanceof Error ? e.message : String(e)}`); }
 }
 
 async function handleSticker(msg: any, chatJid: string) {
     const ctx = msg.message?.extendedTextMessage?.contextInfo;
     if (!ctx?.quotedMessage) return;
-    const media = ctx.quotedMessage.imageMessage || ctx.quotedMessage.videoMessage;
-    if (!media || !ctx.quotedMessage.imageMessage) return sock.sendMessage(chatJid, { text: "❌ Reply to an image." });
+    const q = unwrap(ctx.quotedMessage);
+    const media = q.imageMessage || q.videoMessage;
+    if (!media || !q.imageMessage) return sock.sendMessage(chatJid, { text: "❌ Reply to an image." });
     try {
         const buffer = await downloadMedia(media, "image");
         await sock.sendMessage(chatJid, { sticker: await sharp(buffer).webp().toBuffer() });
-    } catch (e) { log(`Sticker failed: ${e}`); }
+    } catch (e) { log(`Sticker failed: ${e instanceof Error ? e.message : String(e)}`); }
 }
 
 async function handleStatusReaction(msg: any) {
     const chatJid = msg.key.remoteJid || "";
     if (chatJid !== "status@broadcast" || isFromMe(msg)) return;
-    const REACTIONS = ["❤️", "🔥", "🥰", "😍", "💯", "😘", "👏", "🙌", "🤗", "✨", "💖", "🌟"];
-    const emoji = REACTIONS[Math.floor(Math.random() * REACTIONS.length)];
+    const s = settings();
+    if (!s.features?.autoReact) return;
+    const pool = s.reactionEmojis?.length ? s.reactionEmojis : ["❤️", "🔥", "💯"];
+    const emoji = pool[Math.floor(Math.random() * pool.length)];
     try {
         await sock.sendMessage(chatJid, { react: { text: emoji, key: msg.key } });
-        log(`[STATUS] Liked status with ${emoji}`); // 🔑 Debug log
-    } catch (e) { log(`Status like failed: ${e}`); }
+    } catch (e) { log(`Status like failed: ${e instanceof Error ? e.message : String(e)}`); }
+}
+
+function buildMenu(chatJid: string): string {
+    const t = getChatToggles(chatJid);
+    const isGroup = chatJid.endsWith("@g.us");
+    return `🤖 *NovaBot Menu*
+
+*This chat*
+• /vv on|off — view-once auto-save: ${isGroup ? "off (personal chats only)" : t.vv ? "ON" : "OFF"}
+• /anticall on|off — reject calls here: ${t.anticall ? "ON" : "OFF"}
+• /autoreply on|off — auto AI replies here: ${t.autoreply ? "ON" : "OFF"}
+
+*AI*
+• /ai <question> — ask the default AI
+• /ai/<name> <question> — use a saved persona
+
+*Tools*
+• /vv — save the view-once you replied to
+• /save — save the status you replied to
+• /savepp [number] — save a profile picture
+• /sticker — sticker from a replied image
+• /files — saved media page
+• /ping — status
+• /admin — admin panel`;
+}
+
+// ── AI ────────────────────────────────────────────────────────────────
+function senderDigits(msg: any): string {
+    const raw = msg.key.participant ?? msg.key.remoteJid ?? "";
+    return String(raw).split("@")[0].split(":")[0];
+}
+
+function isOwnerSender(msg: any): boolean {
+    if (msg.key.fromMe) return true;
+    const admin = (settings().adminNumber || "").replace(/\D/g, "");
+    return !!admin && senderDigits(msg) === admin;
+}
+
+async function handleAiQuestion(chatJid: string, question: string, personaName?: string) {
+    const s = settings();
+    const persona = personaName ? getPersona(s, personaName) : null;
+    const provider = getPersonaProvider(s, persona);
+    if (!provider) {
+        await sock.sendMessage(chatJid, { text: "⚠️ No AI provider configured. Add one in the admin panel." });
+        return;
+    }
+    const systemPrompt = persona?.instructions || s.aiSystemPrompt;
+    try {
+        await sock.sendPresenceUpdate("composing", chatJid).catch(() => { });
+        const reply = await callAiProvider(provider, question, systemPrompt);
+        await sock.sendMessage(chatJid, { text: reply || "🤖 (empty response)" });
+    } catch (e) {
+        await sock.sendMessage(chatJid, { text: `❌ AI error: ${e instanceof Error ? e.message : String(e)}` });
+    }
+}
+
+/** Reproduce a saved per-contact auto-respond rule. Returns true when it replied. */
+async function maybeAutoRespond(msg: any, chatJid: string, text: string): Promise<boolean> {
+    const s = settings();
+    if (!s.features?.aiChat) return false;
+    if (msg.key.fromMe || chatJid.endsWith("@g.us")) return false;
+    if (!getChatToggles(chatJid).autoreply) return false;
+
+    const rule = matchAutoRule(listAutoRules(), senderDigits(msg), text);
+    if (!rule) return false;
+
+    try {
+        await sock.sendPresenceUpdate("composing", chatJid).catch(() => { });
+        let replyText = (rule.reply || "").replace(/\{name\}/g, msg.pushName || "there");
+        if (rule.instructions) {
+            const provider = getPersonaProvider(s, { id: rule.id, name: "auto-respond", instructions: rule.instructions });
+            if (provider) {
+                try {
+                    const ai = await callAiProvider(provider, text, rule.instructions);
+                    if (ai) replyText = ai;
+                } catch (e) { log(`Auto-respond AI failed, using canned reply: ${e instanceof Error ? e.message : String(e)}`); }
+            }
+        }
+        if (replyText) await sock.sendMessage(chatJid, { text: replyText }, { quoted: msg });
+        return true;
+    } catch (e) {
+        log(`Auto-respond failed: ${e instanceof Error ? e.message : String(e)}`);
+        return true;
+    }
+}
+
+async function maybeAiReply(msg: any, chatJid: string, text: string) {
+    const s = settings();
+    if (!s.features?.aiChat || !text.trim()) return;
+    if (msg.key.fromMe) return; // never answer your own outgoing messages
+    if (!getChatToggles(chatJid).autoreply) return;
+
+    const isGroup = chatJid.endsWith("@g.us");
+    const admin = (s.adminNumber || "").replace(/\D/g, "");
+    const from = senderDigits(msg);
+
+    if (s.features.replyMode === "only" && admin && from !== admin) return;
+
+    // In groups, only answer when mentioned, to avoid replying to every message.
+    if (isGroup) {
+        const mentioned = !!msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length;
+        const directInvite = /^(ai|bot)[,:\s]/i.test(text.trim());
+        if (!mentioned && !directInvite && s.features.replyMode !== "all") return;
+    }
+
+    const rule = firstMatchingRule(s.aiRules, text);
+    if (rule) {
+        try { await sock.sendMessage(chatJid, { text: rule.response }, { quoted: msg }); } catch (e) { log(`rule reply failed: ${e}`); }
+        return;
+    }
+
+    const provider = getActiveAiProvider(s);
+    if (!provider) return;
+
+    try {
+        await sock.sendPresenceUpdate("composing", chatJid).catch(() => { });
+        const reply = await callAiProvider(provider, text, s.aiSystemPrompt);
+        if (reply) await sock.sendMessage(chatJid, { text: reply }, { quoted: msg });
+    } catch (e) {
+        log(`AI error: ${e instanceof Error ? e.message : String(e)}`);
+    }
 }
 
 // ── Main Run ───────────────────────────────────────────────────────────
-async function run() {
-    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-    const { version } = await fetchLatestBaileysVersion();
+async function getBaileysVersion(): Promise<any> {
+    try {
+        const res = await Promise.race([
+            fetchLatestBaileysVersion(),
+            new Promise<null>((r) => setTimeout(() => r(null), 5000)),
+        ]);
+        return res ? res.version : undefined;
+    } catch { return undefined; }
+}
 
-    sock = makeWASocket({
+async function run() {
+    const myGen = ++generation;
+    ipc({ type: "started" });
+
+    // Tear down any previous socket so reconnects don't leak sessions/listeners.
+    if (sock) {
+        try { sock.ev.removeAllListeners("connection.update"); } catch { }
+        try { sock.ev.removeAllListeners("messages.upsert"); } catch { }
+        try { sock.end(undefined); } catch { }
+        sock = null;
+    }
+
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    const version = await getBaileysVersion();
+
+    const socket = makeWASocket({
         version,
         auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })) },
         browser: Browsers.ubuntu("Chrome"),
         printQRInTerminal: false,
         syncFullHistory: false,
         logger: pino({ level: "silent" }),
-        markOnlineOnConnect: true, // 👈 ADD THIS LINE
+        markOnlineOnConnect: true,
     });
+    sock = socket;
 
-    sock.ev.on("creds.update", saveCreds);
+    socket.ev.on("creds.update", saveCreds);
 
-    sock.ev.on("connection.update", async (update: any) => {
+    socket.ev.on("connection.update", async (update: any) => {
+        if (myGen !== generation) return;
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
+            ipc({ type: "qr", qr });
             if (PAIRING_PHONE && !pairingRequested && !state.creds.registered) {
                 pairingRequested = true;
                 try {
                     const cleanPhone = PAIRING_PHONE.replace(/\D/g, "");
-                    const code = await sock.requestPairingCode(cleanPhone);
+                    const code = await socket.requestPairingCode(cleanPhone);
                     ipc({ type: "pairing", code });
                     log(`✅ Pairing code: ${code}`);
                 } catch (e: any) {
-                    ipc({ type: "pairing_error", error: e.message || "Unknown error" });
+                    ipc({ type: "pairing_error", error: e?.message || "Unknown error" });
                     pairingRequested = false;
                 }
             }
@@ -264,62 +466,123 @@ async function run() {
 
         if (connection === "open") {
             pairingRequested = false;
-            ipc({ type: "connected", phoneNumber: sock.user?.id?.split(":")[0] });
-            log(`✅ Connected successfully`);
+            ipc({ type: "connected", phoneNumber: socket.user?.id?.split(":")[0] });
+            log("✅ Connected successfully");
         }
 
         if (connection === "close") {
-            if (stopping) return;
+            if (stopping || myGen !== generation) return;
             const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
+            if (code === DisconnectReason.loggedOut) {
+                ipc({ type: "logged_out" });
+                log("🚪 Logged out");
+                process.exit(0);
+            }
             if (pairingRequested && !state.creds.registered) return;
-            if (code === DisconnectReason.loggedOut) { ipc({ type: "logged_out" }); return; }
-            setTimeout(() => run().catch(() => { }), 3000);
+            if (reconnectTimer) return;
+            reconnectTimer = setTimeout(() => {
+                reconnectTimer = null;
+                if (stopping) return;
+                run().catch((e) => { log(`Reconnect failed: ${e}`); });
+            }, 3000);
         }
     });
 
-    sock.ev.on("messages.upsert", async ({ messages }: any) => {
+    socket.ev.on("call", async (calls: any[]) => {
+        if (myGen !== generation) return;
+        for (const call of calls) {
+            if (call.status !== "offer") continue;
+            const jid = call.chatId || call.from;
+            if (!jid || !getChatToggles(jid).anticall) continue;
+            try {
+                await socket.rejectCall(call.id, call.from);
+                log(`📵 Rejected call from ${jid}`);
+            } catch (e) { log(`Call reject failed: ${e instanceof Error ? e.message : String(e)}`); }
+        }
+    });
+
+    socket.ev.on("messages.upsert", async ({ messages }: any) => {
+        if (myGen !== generation) return;
         for (const msg of messages) {
             if (!msg.message) continue;
             const chatJid = msg.key.remoteJid || "";
             const text = getText(msg);
-            const cmd = text.trim().toLowerCase().replace(/^\./, "");
-            const args = text.trim().split(/\s+/).slice(1);
+            const rawCmd = text.trim().replace(/^[.!/]/, "");
+            const parts = rawCmd.split(/\s+/);
+            const cmd = (parts[0] || "").toLowerCase();
+            const norm = rawCmd.toLowerCase();
+            const args = parts.slice(1);
 
             if (msg.message?.reactionMessage) { await handleReaction(msg); continue; }
             if (chatJid === "status@broadcast") { await handleStatusReaction(msg); continue; }
 
-            if (autoTypingEnabled && !isFromMe(msg) && text) {
-                try { await sock.sendPresenceUpdate("composing", chatJid); } catch { }
+            const s = settings();
+            if (autoTypingEnabled && s.features?.autoPresence && !isFromMe(msg) && text) {
+                try { await socket.sendPresenceUpdate("composing", chatJid); } catch { }
             }
 
             await handleViewOnce(msg, chatJid);
 
-            // 🔑 SNAPPY DELETION: Delete commands immediately before processing
-            if (cmd === "vv") {
-                try { await sock.sendMessage(chatJid, { delete: msg.key }); } catch { }
-                await handleVv(msg, chatJid);
-            }
-            if (cmd === "save") {
-                try { await sock.sendMessage(chatJid, { delete: msg.key }); } catch { }
-                await handleSaveStatus(msg, chatJid);
-            }
+            let handled = false;
+            const owner = isOwnerSender(msg);
 
-            if (cmd === "ping") await sock.sendMessage(chatJid, { text: "🏓 Pong!" });
-            if (cmd === "autotyping on") { autoTypingEnabled = true; await sock.sendMessage(chatJid, { text: "✍️ Auto-typing ON" }); }
-            if (cmd === "presence off") {
-                await sock.sendPresenceUpdate("unavailable").catch(() => { });
-                await sock.sendMessage(chatJid, { text: "👻 Bot is now invisible (Offline)." });
+            // Per-chat toggles (owner only)
+            if (cmd === "vv" || cmd === "anticall" || cmd === "autoreply") {
+                const value = (args[0] || "").toLowerCase();
+                if (value === "on" || value === "off") {
+                    handled = true;
+                    const label = cmd === "vv" ? "View-once auto-save" : cmd === "anticall" ? "Anti-call" : "Auto-reply";
+                    if (!owner) {
+                        await socket.sendMessage(chatJid, { text: "🔒 Only the bot owner can change chat settings." });
+                    } else if (cmd === "vv" && chatJid.endsWith("@g.us")) {
+                        await socket.sendMessage(chatJid, { text: "🚫 View-once auto-save is personal-chat only." });
+                    } else {
+                        const key = cmd as "vv" | "anticall" | "autoreply";
+                        const st = setChatToggle(chatJid, key, value === "on");
+                        await socket.sendMessage(chatJid, { text: `${st[key] ? "✅" : "🚫"} ${label} ${st[key] ? "ON" : "OFF"} in this chat` });
+                    }
+                }
             }
-            if (cmd === "presence on") {
-                await sock.sendPresenceUpdate("available").catch(() => { });
-                await sock.sendMessage(chatJid, { text: "🟢 Bot is now visible (Online)." });
+            if (!handled && cmd === "vv") { handled = true; try { await socket.sendMessage(chatJid, { delete: msg.key }); } catch { } await handleVv(msg, chatJid); }
+            if (cmd === "save") { handled = true; try { await socket.sendMessage(chatJid, { delete: msg.key }); } catch { } await handleSaveStatus(msg, chatJid); }
+            if (cmd === "ping") { handled = true; await socket.sendMessage(chatJid, { text: "🏓 Pong!" }); }
+            if (cmd === "menu" || cmd === "help") { handled = true; await socket.sendMessage(chatJid, { text: buildMenu(chatJid) }); }
+            if (cmd === "files") { handled = true; await socket.sendMessage(chatJid, { text: `📁 View all files: ${process.env.PUBLIC_URL}/my-files` }); }
+            if (cmd === "admin") { handled = true; await socket.sendMessage(chatJid, { text: `⚙️ Admin panel: ${process.env.PUBLIC_URL}/admin` }); }
+            if (cmd === "ai" || cmd.startsWith("ai/")) {
+                handled = true;
+                const question = args.join(" ").trim();
+                if (!question) {
+                    await socket.sendMessage(chatJid, { text: "Usage: /ai <question> or /ai/<name> <question>" });
+                } else if (!owner && settings().features.replyMode === "only") {
+                    await socket.sendMessage(chatJid, { text: "🔒 AI is limited to the admin in this mode." });
+                } else {
+                    await handleAiQuestion(chatJid, question, cmd.startsWith("ai/") ? cmd.slice(3) : undefined);
+                }
             }
-            if (cmd === "autotyping off") { autoTypingEnabled = false; await sock.sendMessage(chatJid, { text: "🚫 Auto-typing OFF" }); }
-            if (cmd === "savepp") await handleSavePP(msg, chatJid, args);
-            if (cmd === "sticker") await handleSticker(msg, chatJid);
+            if (norm === "autotyping on" || norm === "autotyping off") {
+                handled = true;
+                if (!owner) { await socket.sendMessage(chatJid, { text: "🔒 Only the bot owner can change this." }); }
+                else {
+                    autoTypingEnabled = norm.endsWith("on");
+                    await socket.sendMessage(chatJid, { text: `✍️ Auto-typing ${autoTypingEnabled ? "ON" : "OFF"}` });
+                }
+            }
+            if (norm === "presence on" || norm === "presence off") {
+                handled = true;
+                if (!owner) { await socket.sendMessage(chatJid, { text: "🔒 Only the bot owner can change this." }); }
+                else if (norm === "presence on") { await socket.sendPresenceUpdate("available").catch(() => { }); await socket.sendMessage(chatJid, { text: "🟢 Bot is now visible." }); }
+                else { await socket.sendPresenceUpdate("unavailable").catch(() => { }); await socket.sendMessage(chatJid, { text: "👻 Bot is now invisible." }); }
+            }
+            if (cmd === "savepp") { handled = true; await handleSavePP(msg, chatJid, args); }
+            if (cmd === "sticker" || cmd === "s") { handled = true; await handleSticker(msg, chatJid); }
 
-            if (cmd === "files") await sock.sendMessage(chatJid, { text: `📁 View all files: ${process.env.PUBLIC_URL}/my-files` });
-            if (cmd === "menu") await sock.sendMessage(chatJid, { text: `🤖 *Menu*\nping\nfiles\nautotyping on/off\nsave\nvv\nsavepp\nsticker` });
+            if (!handled && text.trim()) {
+                const replied = await maybeAutoRespond(msg, chatJid, text).catch(() => false);
+                if (!replied) {
+                    try { await maybeAiReply(msg, chatJid, text); } catch (e) { log(`AI wrapper failed: ${e}`); }
+                }
+            }
         }
     });
 }
@@ -327,12 +590,15 @@ async function run() {
 // Keep process alive AND keep WhatsApp status as "Online"
 const keepAlive = setInterval(() => {
     try {
-        if (sock?.user) {
+        const s = settings();
+        if (sock?.user && s.features?.autoPresence !== false) {
             sock.sendPresenceUpdate("available").catch(() => { });
         }
     } catch { }
 }, 60_000);
-process.on("message", (m: any) => { if (m?.type === "kill") { clearInterval(keepAlive); process.exit(0); } });
-process.on("SIGTERM", () => process.exit(0));
-process.on("SIGINT", () => process.exit(0));
-run().catch(e => { console.error(e); ipc({ type: "error", error: e.message }); });
+
+process.on("message", (m: any) => { if (m?.type === "kill") { stopping = true; clearInterval(keepAlive); if (reconnectTimer) clearTimeout(reconnectTimer); process.exit(0); } });
+process.on("SIGTERM", () => { stopping = true; process.exit(0); });
+process.on("SIGINT", () => { stopping = true; process.exit(0); });
+
+run().catch(e => { console.error(e); ipc({ type: "error", error: e instanceof Error ? e.message : String(e) }); });

@@ -40,6 +40,33 @@ export interface KeywordReply {
   matchType: "exact" | "contains";
 }
 
+export type AiMatchType = "exact" | "contains" | "startsWith" | "endsWith" | "regex";
+
+export interface AiRule {
+  id: string;
+  trigger: string;
+  response: string;
+  matchType: AiMatchType;
+  enabled: boolean;
+  createdAt: number;
+}
+
+export interface AiProviderConfig {
+  id: string;
+  provider: "openai" | "anthropic" | "gemini" | "custom";
+  apiKey: string;
+  model: string;
+  baseUrl?: string;
+  label?: string;
+}
+
+export interface AiPersona {
+  id: string;
+  name: string;
+  instructions: string;
+  providerId?: string;
+}
+
 export interface BotFeatures {
   autoReact: boolean;
   saveStatus: boolean;
@@ -53,6 +80,7 @@ export interface BotFeatures {
   aiChat: boolean;
   customCommands: boolean;
   autoPresence: boolean;
+  replyMode: "only" | "all";
 }
 
 export interface BotSettings {
@@ -63,6 +91,11 @@ export interface BotSettings {
   goodbyeMessage: string;
   antiLinkWhitelist: string[];
   aiSystemPrompt: string;
+  adminNumber: string;
+  aiProviders: AiProviderConfig[];
+  aiRules: AiRule[];
+  defaultAiProvider: string;
+  personas: AiPersona[];
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -81,6 +114,7 @@ export const DEFAULT_SETTINGS: BotSettings = {
     aiChat: true,
     customCommands: true,
     autoPresence: true,
+    replyMode: "only",
   },
   reactionEmojis: [
     "❤️", "🔥", "😍", "🥰", "😂", "👏", "🎉", "💯", "✨", "😊",
@@ -91,6 +125,11 @@ export const DEFAULT_SETTINGS: BotSettings = {
   goodbyeMessage: "👋 {name} has left the group. Goodbye!",
   antiLinkWhitelist: [],
   aiSystemPrompt: "You are a helpful WhatsApp assistant. Keep responses short and friendly.",
+  adminNumber: "",
+  aiProviders: [],
+  aiRules: [],
+  defaultAiProvider: "",
+  personas: [],
 };
 
 // ── Settings persistence ──────────────────────────────────────────────────────
@@ -147,6 +186,28 @@ export function applySettings(s: BotSettings): void {
   saveSettings(s);
 }
 
+/** Pick the configured default AI provider, falling back to the first one. */
+export function getActiveAiProvider(s: BotSettings): AiProviderConfig | null {
+  if (!s.aiProviders?.length) return null;
+  return s.aiProviders.find(p => p.id === s.defaultAiProvider) ?? s.aiProviders[0];
+}
+
+/** Find a persona by name (case-insensitive). */
+export function getPersona(s: BotSettings, name: string): AiPersona | null {
+  const n = name.trim().toLowerCase();
+  if (!n) return null;
+  return (s.personas ?? []).find(p => p.name.trim().toLowerCase() === n) ?? null;
+}
+
+/** Provider for a persona, falling back to the default provider. */
+export function getPersonaProvider(s: BotSettings, persona: AiPersona | null): AiProviderConfig | null {
+  if (persona?.providerId) {
+    const p = (s.aiProviders ?? []).find(x => x.id === persona.providerId);
+    if (p) return p;
+  }
+  return getActiveAiProvider(s);
+}
+
 // ── Multi-user PIN auth ───────────────────────────────────────────────────────
 
 interface DashboardUser {
@@ -185,6 +246,20 @@ function loadAuthFile(): AuthData {
 function saveAuthFile(data: AuthData): void {
   try { fs.mkdirSync(BASE_DIR, { recursive: true }); fs.writeFileSync(AUTH_FILE, JSON.stringify(data, null, 2)); }
   catch { /* ignore */ }
+}
+
+/** File-cache fallback so login works even when no database is configured. */
+function fileGetUser(phone: string): DashboardUser | null {
+  const auth = loadAuthFile();
+  return (auth.users ?? []).find(u => u.phone === phone) ?? null;
+}
+
+function fileDeleteUser(phone: string): boolean {
+  const auth = loadAuthFile();
+  const before = (auth.users ?? []).length;
+  auth.users = (auth.users ?? []).filter(u => u.phone !== phone);
+  saveAuthFile(auth);
+  return auth.users.length < before;
 }
 
 // ── DB-backed auth ────────────────────────────────────────────────────────────
@@ -276,11 +351,12 @@ export async function registerUser(phone: string, pin: string, label?: string): 
   if (!pin || pin.length < 4) return { ok: false, error: "PIN must be at least 4 characters" };
 
   await tryMigrateLegacyToDb();
-  const existing = await dbGetUser(normalized);
+  const existing = (await dbGetUser(normalized)) ?? fileGetUser(normalized);
   if (existing) return { ok: false, error: "A user with this phone number already exists. Use 'Log In' instead." };
 
   const count = await dbCountUsers();
-  const isOwner = count === 0;
+  const fileCount = (loadAuthFile().users ?? []).length;
+  const isOwner = count === 0 && fileCount === 0;
   const user: DashboardUser = { phone: normalized, pinHash: hashPin(normalized, pin), label, isOwner, createdAt: Date.now() };
   await dbUpsertUser(user);
   return { ok: true, isOwner };
@@ -289,7 +365,7 @@ export async function registerUser(phone: string, pin: string, label?: string): 
 export async function changeUserPin(phone: string, newPin: string): Promise<boolean> {
   const normalized = normalizePhone(phone);
   if (!newPin || newPin.length < 4) return false;
-  const user = await dbGetUser(normalized);
+  const user = (await dbGetUser(normalized)) ?? fileGetUser(normalized);
   if (!user) return false;
   user.pinHash = hashPin(normalized, newPin);
   await dbUpsertUser(user);
@@ -298,14 +374,16 @@ export async function changeUserPin(phone: string, newPin: string): Promise<bool
 
 export async function deleteUser(phone: string): Promise<boolean> {
   const normalized = normalizePhone(phone);
-  return dbDeleteUser(normalized);
+  const dbDeleted = await dbDeleteUser(normalized);
+  const fileDeleted = fileDeleteUser(normalized);
+  return dbDeleted || fileDeleted;
 }
 
 export async function verifyPinAndCreateSession(phone: string, pin: string): Promise<{ token: string; isOwner: boolean; phone: string } | null> {
   const normalized = normalizePhone(phone);
   await tryMigrateLegacyToDb();
 
-  let user = await dbGetUser(normalized);
+  let user = (await dbGetUser(normalized)) ?? fileGetUser(normalized);
 
   // Legacy migration: if no DB user but a legacy pinHash file exists and matches
   if (!user) {

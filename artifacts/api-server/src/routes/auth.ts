@@ -5,15 +5,24 @@ import ws from "ws";
 
 const router: IRouter = Router();
 
-const supabase = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_ANON_KEY!,
-    {
-        realtime: {
-            transport: ws as any,
-        },
+let supabase: any = null;
+try {
+    if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
+        supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+            realtime: { transport: ws as any },
+        });
+    } else {
+        console.warn("auth routes: SUPABASE_URL/ANON_KEY not set — auth endpoints disabled");
     }
-);
+} catch (e) {
+    console.error("auth routes: Supabase init failed:", e);
+}
+
+function requireDb(res: Response): boolean {
+    if (supabase) return true;
+    res.status(503).json({ ok: false, error: "Database not configured" });
+    return false;
+}
 
 // Hash PIN with a salt (simple, no bcrypt dependency)
 function hashPin(pin: string, phone: string): string {
@@ -22,6 +31,7 @@ function hashPin(pin: string, phone: string): string {
 
 // ── Register ──────────────────────────────────────────────────────────
 router.post("/auth/register", async (req: Request, res: Response) => {
+    if (!requireDb(res)) return;
     try {
         const { phone, pin } = req.body || {};
         if (!phone || !pin) {
@@ -71,6 +81,7 @@ router.post("/auth/register", async (req: Request, res: Response) => {
 
 // ── Login ─────────────────────────────────────────────────────────────
 router.post("/auth/login", async (req: Request, res: Response) => {
+    if (!requireDb(res)) return;
     try {
         const { phone, pin } = req.body || {};
         if (!phone || !pin) {
@@ -110,6 +121,7 @@ router.post("/auth/login", async (req: Request, res: Response) => {
 
 // ── Get settings ──────────────────────────────────────────────────────
 router.post("/auth/settings", async (req: Request, res: Response) => {
+    if (!requireDb(res)) return;
     try {
         const { phone, pin } = req.body || {};
         const cleanPhone = (phone || "").replace(/\D/g, "");
@@ -141,6 +153,7 @@ router.post("/auth/settings", async (req: Request, res: Response) => {
 
 // ── Update settings ───────────────────────────────────────────────────
 router.post("/auth/settings/update", async (req: Request, res: Response) => {
+    if (!requireDb(res)) return;
     try {
         const { phone, pin, settings } = req.body || {};
         const cleanPhone = (phone || "").replace(/\D/g, "");
@@ -189,6 +202,7 @@ router.post("/auth/settings/update", async (req: Request, res: Response) => {
 
 // ── Link session to user ──────────────────────────────────────────────
 router.post("/auth/link-session", async (req: Request, res: Response) => {
+    if (!requireDb(res)) return;
     try {
         const { phone, pin, session_id } = req.body || {};
         const cleanPhone = (phone || "").replace(/\D/g, "");
