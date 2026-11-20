@@ -396,6 +396,7 @@
             { kind: 'gemini', label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-2.5-flash', key: true, hint: 'aistudio.google.com → API key' },
             { kind: 'groq', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', key: true, hint: 'console.groq.com/keys' },
             { kind: 'mistral', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1', model: 'mistral-small-latest', key: true, hint: 'console.mistral.ai → API keys' },
+            { kind: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', key: true, hint: 'platform.deepseek.com → API keys' },
             { kind: 'custom', label: 'Custom (OpenAI-compatible)', baseUrl: '', model: '', key: false, hint: 'Any OpenAI-compatible endpoint (FreeLLM, vLLM, LM Studio). Paste its /v1 URL — for a laptop server use a tunnel URL, not localhost.' },
         ];
         function presetOf(kind) { return PRESETS.find(p => p.kind === kind); }

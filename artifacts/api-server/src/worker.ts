@@ -16,9 +16,9 @@ import sharp from "sharp";
 import { createClient } from "@supabase/supabase-js";
 import ws from "ws";
 import { loadSettings, getPersona, getPersonaProvider, type BotSettings } from "./lib/settings";
-import { callAiWithPool, firstMatchingRule, trimReply } from "./lib/ai";
+import { callAiWithPool, firstMatchingRule, trimReply, isFillerReply } from "./lib/ai";
 import { getChatToggles, setChatToggle } from "./lib/chat-settings";
-import { getActiveSession, startSession, appendToSession, endSession, isStopMessage } from "./lib/ai-sessions";
+import { getActiveSession, startSession, appendToSession, endSession, isStopMessage, setSessionScope } from "./lib/ai-sessions";
 import { listAutoRules, matchAutoRule } from "./lib/auto-respond";
 import { appendTurn, getMemory, learnIfNeeded, memoryPromptBlock } from "./lib/memory";
 
@@ -27,6 +27,7 @@ const PAIRING_PHONE = process.env.WORKER_PHONE || "";
 const PHONE = SESSION_ID.replace(/^user_/, "");
 
 if (!SESSION_ID) process.exit(1);
+setSessionScope(SESSION_ID);
 
 const BASE_DIR = path.join(process.cwd(), "data");
 const AUTH_DIR = path.join(BASE_DIR, "sessions", SESSION_ID, "auth");
@@ -312,11 +313,10 @@ function buildMenu(chatJid: string): string {
  ▸ /autoreply on|off — auto replies: ${on(t.autoreply)}
 
 *🧠 AI*
- ▸ /ai <question> — ask the default AI
- ▸ /ai/<name> <question> — use a persona
- ▸ <name> <question> — call a persona by name
- ▸ say "enough" — end the persona chat
- ▸ anyone can ask — the bot answers like a person
+ ▸ ai — call me into this chat
+ ▸ ai <question> — ask me
+ ▸ <name> / @<name> — call a persona
+ ▸ say "enough" — I go quiet
 
 *⌨️ CUSTOM COMMANDS*
  ▸ /commands — list this bot's commands
@@ -451,6 +451,30 @@ async function maybeLinkAnswer(chatJid: string, text: string): Promise<boolean> 
     return true;
 }
 
+/** Text of the message the user quoted/replied to, if any. */
+function quotedSnippet(msg: any): string {
+    const q = msg?.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!q) return "";
+    const inner = unwrap(q);
+    const t = inner?.conversation || inner?.extendedTextMessage?.text ||
+        inner?.imageMessage?.caption || inner?.videoMessage?.caption || "";
+    return String(t).slice(0, 300);
+}
+
+/** Prefix the user's text with the quoted message so the model knows what it's replying to. */
+function withQuote(msg: any, text: string): string {
+    const q = quotedSnippet(msg);
+    return q ? `(replying to: "${q}")\n${text}` : text;
+}
+
+const DEFAULT_PERSONA = "Nova";
+const ARRIVALS = ["I'm here 😎 what's up?", "I'm in 👋 what's going on?", "made it 😄 talk to me", "here — what's good?"];
+
+function arrivalLine(personaName?: string): string {
+    const line = ARRIVALS[Math.floor(Math.random() * ARRIVALS.length)];
+    return personaName ? `${personaName}: ${line}` : line;
+}
+
 /** One AI turn with short-reply styling, contact memory and failover pool. */
 async function aiTurn(
     chatJid: string,
@@ -462,16 +486,32 @@ async function aiTurn(
     pushName?: string
 ): Promise<string> {
     const s = settings();
+    // Groups never see per-contact memory: facts learned in a DM must not
+    // surface in an unrelated group (and vice versa).
+    const useMemory = !chatJid.endsWith("@g.us");
     let prompt = systemPrompt + deploymentContext();
-    if (s.features?.memory) {
+    let turns = history.slice(-12);
+
+    if (useMemory) {
         try {
             const mem = await getMemory(SESSION_ID, contact);
+            if (!turns.length) {
+                // No live session: continue from this contact's recent chat history.
+                const recent = mem.recent.slice(-10).map(t => ({ role: t.role, content: t.text }));
+                const last = recent[recent.length - 1];
+                if (last && last.role === "user" && last.content.trim() === text.trim()) recent.pop();
+                turns = recent;
+            }
             prompt += memoryPromptBlock(mem, pushName);
         } catch { /* memory is best-effort */ }
     }
+
     await sock.sendPresenceUpdate("composing", chatJid).catch(() => { });
-    const { text: reply } = await callAiWithPool(s, text, prompt, history, { preferredId: preferredProviderId });
-    return trimReply(reply) || "(no response)";
+    const { text: reply } = await callAiWithPool(s, text, prompt, turns, { preferredId: preferredProviderId });
+    const trimmed = trimReply(reply);
+    // Never send canned assistant filler ("I'm here to help…") into a chat.
+    if (!trimmed || isFillerReply(trimmed)) return "";
+    return trimmed;
 }
 
 /**
@@ -496,7 +536,7 @@ async function handleAiQuestion(chatJid: string, question: string, personaName?:
     const contact = msg ? senderDigits(msg) : chatJid.split("@")[0].split(":")[0];
     const base = persona?.instructions || s.aiSystemPrompt;
     const systemPrompt = join
-        ? `${base}\n\nYou are ${persona?.name ?? "the assistant"}, texting in this WhatsApp chat like a real person — casual, funny, you flow with the conversation. Keep every reply to 1-2 short sentences. You were called in; when the user says "enough" or "stop" you leave.`
+        ? `${base}\n\nYou are ${persona?.name ?? DEFAULT_PERSONA}, a real person texting in this WhatsApp chat — casual, funny, you flow with the conversation. Keep every reply to 1-2 short sentences. You were called in; when the user says "enough" or "stop" you leave.`
         : base;
     if (join && persona) startSession(chatJid, persona.name);
     try {
@@ -504,13 +544,14 @@ async function handleAiQuestion(chatJid: string, question: string, personaName?:
         const history = existing && persona &&
             existing.persona.trim().toLowerCase() === persona.name.trim().toLowerCase()
             ? existing.history : [];
-        const reply = await aiTurn(chatJid, contact, question, systemPrompt, history, preferred?.id, msg?.pushName);
-        await sock.sendMessage(chatJid, { text: reply });
-        if (join) {
-            appendToSession(chatJid, { role: "user", content: question });
+        const contextText = msg ? withQuote(msg, question) : question;
+        const reply = await aiTurn(chatJid, contact, contextText, systemPrompt, history, preferred?.id, msg?.pushName);
+        if (reply) await sock.sendMessage(chatJid, { text: reply });
+        if (join && reply) {
+            appendToSession(chatJid, { role: "user", content: contextText });
             appendToSession(chatJid, { role: "assistant", content: reply });
         }
-        rememberExchange(contact, question, reply, msg?.pushName);
+        if (reply) rememberExchange(contact, question, reply, msg?.pushName);
     } catch (e) {
         log(`AI error: ${e instanceof Error ? e.message : String(e)}`);
         await sock.sendMessage(chatJid, { text: "😬 AI is unavailable right now — try again in a moment." });
@@ -533,12 +574,12 @@ async function handleSessionReply(chatJid: string, text: string, msg: any): Prom
     const base = persona?.instructions || s.aiSystemPrompt;
     const systemPrompt =
         `${base}\n\nYou are ${active.persona}, texting in an ongoing WhatsApp chat like a real person. ` +
-        `Match their tone, joke when it fits, and flow with the conversation. Keep every reply to 1-2 short sentences. ` +
-        `When the user says "enough" or "stop" you leave.`;
+        `You see the last few messages; keep the conversation flowing, match their tone, joke when it fits. ` +
+        `Keep every reply to 1-2 short sentences. When the user says "enough", "stop" or "leave" you quietly leave.`;
     const history = active.history.slice();
     appendToSession(chatJid, { role: "user", content: text });
     try {
-        const reply = await aiTurn(chatJid, contact, text, systemPrompt, history, preferred?.id, msg.pushName);
+        const reply = await aiTurn(chatJid, contact, withQuote(msg, text), systemPrompt, history, preferred?.id, msg.pushName);
         if (reply) {
             await sock.sendMessage(chatJid, { text: reply }, { quoted: msg });
             appendToSession(chatJid, { role: "assistant", content: reply });
@@ -582,7 +623,7 @@ async function maybeAutoRespond(msg: any, chatJid: string, text: string): Promis
 async function maybeAiReply(msg: any, chatJid: string, text: string) {
     const s = settings();
     if (!s.features?.aiChat || !text.trim()) return;
-    if (msg.key.fromMe) return; // never answer your own outgoing messages
+    if (msg.key.fromMe) return; // never answer your own outgoing messages (loop guard)
     if (!getChatToggles(chatJid).autoreply) return;
 
     const isGroup = chatJid.endsWith("@g.us");
@@ -591,14 +632,18 @@ async function maybeAiReply(msg: any, chatJid: string, text: string) {
 
     if (s.features.replyMode === "only" && admin && from !== admin) return;
 
-    // In groups, only answer when mentioned — never reply to every group message.
-    if (isGroup) {
-        const mentioned = !!msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length;
-        const directInvite = /^(ai|bot)[,:\s]/i.test(text.trim());
-        if (!mentioned && !directInvite) return;
-    }
+    // The AI only speaks when called: "ai …" in a DM, or an actual @mention of the
+    // bot in a group. Idle chat is never answered on its own.
+    const prefixInvite = /^(ai|bot)\b[,:\s]/i.test(text.trim());
+    const ownId = sock?.user?.id ? jidNormalizedUser(sock.user.id) : "";
+    const mentioned = !!msg.message?.extendedTextMessage?.contextInfo?.mentionedJid
+        ?.some((j: string) => jidNormalizedUser(j) === ownId);
+    if (isGroup ? !(prefixInvite || mentioned) : !prefixInvite) return;
 
-    const rule = firstMatchingRule(s.aiRules, text);
+    const cleanText = text.trim().replace(/^(ai|bot)\b[,:\s]*/i, "").trim();
+    if (!cleanText) return;
+
+    const rule = firstMatchingRule(s.aiRules, cleanText);
     if (rule) {
         try { await sock.sendMessage(chatJid, { text: rule.response }, { quoted: msg }); } catch (e) { log(`rule reply failed: ${e}`); }
         return;
@@ -606,12 +651,14 @@ async function maybeAiReply(msg: any, chatJid: string, text: string) {
 
     if (!(s.aiProviders ?? []).length) return;
 
-    if (await maybeLinkAnswer(chatJid, text)) return;
+    if (await maybeLinkAnswer(chatJid, cleanText)) return;
 
     try {
-        const reply = await aiTurn(chatJid, from, text, s.aiSystemPrompt, [], undefined, msg.pushName);
-        if (reply) await sock.sendMessage(chatJid, { text: reply }, { quoted: msg });
-        rememberExchange(from, text, reply, msg.pushName);
+        const reply = await aiTurn(chatJid, from, withQuote(msg, cleanText), s.aiSystemPrompt, [], undefined, msg.pushName);
+        if (reply) {
+            await sock.sendMessage(chatJid, { text: reply }, { quoted: msg });
+            rememberExchange(from, cleanText, reply, msg.pushName);
+        }
     } catch (e) {
         log(`AI error: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -807,11 +854,21 @@ async function run() {
             if (cmd === "menu" || cmd === "help") { handled = true; await socket.sendMessage(chatJid, { text: buildMenu(chatJid) }); }
             if (cmd === "commands" || cmd === "cc") { handled = true; await socket.sendMessage(chatJid, { text: customCommandList() }); }
             if (cmd === "files") { handled = true; await socket.sendMessage(chatJid, { text: `📁 View all files: ${publicLink()}/my-files` }); }
-            if (cmd === "ai" || cmd.startsWith("ai/")) {
+            if ((cmd === "ai" || cmd === "bot") && args.length === 0) {
+                // Bare "ai" calls the default assistant into the chat.
+                handled = true;
+                if (!owner && settings().features.replyMode === "only") {
+                    await socket.sendMessage(chatJid, { text: "🔒 AI is limited to the admin in this mode." });
+                } else {
+                    startSession(chatJid, DEFAULT_PERSONA);
+                    await socket.sendMessage(chatJid, { text: arrivalLine() });
+                }
+            }
+            if (cmd.startsWith("ai/") || ((cmd === "ai" || cmd === "bot") && args.length > 0)) {
                 handled = true;
                 const question = args.join(" ").trim();
                 if (!question) {
-                    await socket.sendMessage(chatJid, { text: "Usage: /ai <question> or /ai/<name> <question>" });
+                    await socket.sendMessage(chatJid, { text: "Usage: ai <question> — or just type \"ai\" to call me in." });
                 } else if (!owner && settings().features.replyMode === "only") {
                     await socket.sendMessage(chatJid, { text: "🔒 AI is limited to the admin in this mode." });
                 } else {
@@ -820,16 +877,17 @@ async function run() {
             }
             // Ongoing persona conversation — reply until the user says enough/stop
             // (checked before the name trigger so "nora enough" ends the chat)
-            if (!handled && text.trim()) {
+            // Never triggered by the bot's own outgoing messages (loop guard).
+            if (!handled && !msg.key.fromMe && text.trim()) {
                 const active = getActiveSession(chatJid);
                 if (active && isStopMessage(text, active.persona)) {
                     handled = true;
                     endSession(chatJid);
-                    await socket.sendMessage(chatJid, { text: `👋 ${active.persona} has left the conversation.` });
+                    await socket.sendMessage(chatJid, { text: `👋 ${active.persona} left — say "${active.persona}" or "ai" when you need me again.` });
                 }
             }
-            // Persona by name: "Nora what is utc" / "nora, are you there"
-            if (!handled && text.trim()) {
+            // Persona by name: "Nora what is utc" / "@nora" / "nora, are you there"
+            if (!handled && !msg.key.fromMe && text.trim()) {
                 const pm = matchPersonaPrefix(text);
                 if (pm) {
                     handled = true;
@@ -837,14 +895,14 @@ async function run() {
                         await socket.sendMessage(chatJid, { text: "🔒 AI is limited to the admin in this mode." });
                     } else if (!pm.question) {
                         startSession(chatJid, pm.persona.name);
-                        await socket.sendMessage(chatJid, { text: `🤖 ${pm.persona.name} has joined the chat — ask away. Say "enough" when you're done.` });
+                        await socket.sendMessage(chatJid, { text: arrivalLine(pm.persona.name) });
                     } else {
                         await handleAiQuestion(chatJid, pm.question, pm.persona.name, true, msg);
                     }
                 }
             }
             // Active persona chat — keep the conversation flowing
-            if (!handled && text.trim()) {
+            if (!handled && !msg.key.fromMe && text.trim()) {
                 const active = getActiveSession(chatJid);
                 if (active) {
                     handled = true;

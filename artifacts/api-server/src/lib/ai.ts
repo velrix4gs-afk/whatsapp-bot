@@ -27,14 +27,37 @@ export function firstMatchingRule(rules: AiRule[] | undefined, text: string): Ai
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
-    "You are a helpful WhatsApp assistant. You text like a real person: casual, warm, and brief.";
+    "You are a real person chatting on WhatsApp — warm, casual, a little witty. " +
+    "You talk like a friend, not like a customer support agent.";
 
-/** Appended to every chat prompt — WhatsApp messages must stay short. */
+/** Appended to every chat prompt — WhatsApp messages must stay short and human. */
 export const SHORT_REPLY_RULE =
-    "\n\nReply rules: answer in 1-2 short sentences, max 25 words. " +
-    "Talk like a real person texting, not like a manual. " +
-    "Never write long paragraphs or bullet lists unless the user explicitly asks for a list. " +
-    "Never say you are an AI or a bot.";
+    "\n\nHow you text:\n" +
+    "- Reply with 1-2 short sentences, max ~25 words. Never essays, lists or headings.\n" +
+    "- Respond to what was actually just said; if a message is quoted, answer that message.\n" +
+    "- Never send filler or check-in messages: no \"I'm here to help\", no \"What's on your mind?\", " +
+    "no \"How can I assist you today?\", no \"Let me know if you need anything\".\n" +
+    "- Don't re-introduce yourself or announce you're an AI/bot. Don't offer menus of things you can do.\n" +
+    "- Mirror the other person's tone and language (pidgin, slang, emojis — match what they use).\n" +
+    "- If they're joking, joke back lightly. Be useful when they ask something real; " +
+    "when they just chat, chat back naturally instead of steering to a task.\n" +
+    "- A short natural reaction beats a polished canned line.";
+
+/** Boilerplate assistant filler that must never reach a WhatsApp chat. */
+const FILLER_REPLY = new RegExp(
+    "^(hi|hello|hey)?[!.,\\s]*" +
+    "(i'?m here to (help|assist)|how (can|may) i (help|assist)|what'?s on your mind|" +
+    "is there anything (else )?i can (do|help)|let me know if you (need|have)|" +
+    "i'?m here for you|feel free to ask|how'?s it going\\?\\s*$)",
+    "i"
+);
+
+export function isFillerReply(text: string): boolean {
+    const t = String(text ?? "").trim();
+    if (!t) return true;
+    if (t.length > 120) return false;
+    return FILLER_REPLY.test(t);
+}
 
 const MAX_TOKENS = 220;
 const MAX_REPLY_CHARS = 450;
@@ -116,11 +139,17 @@ export async function callAiWithPool(
     }
 
     const errors: string[] = [];
+    const startedAt = Date.now();
+    const TOTAL_BUDGET_MS = 40_000;
     for (const provider of pool) {
+        if (Date.now() - startedAt > TOTAL_BUDGET_MS) {
+            errors.push("(gave up after 40s to keep the reply fast)");
+            break;
+        }
         try {
             const reply = await withTimeout(
                 callAiProvider(provider, text, systemPrompt, history, { ...opts, plain: opts.plain }),
-                25_000
+                15_000
             );
             lastGoodProviderId = provider.id;
             lastGoodAt = Date.now();

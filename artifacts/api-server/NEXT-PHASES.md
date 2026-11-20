@@ -109,6 +109,27 @@ http://localhost:PORT` or `ngrok http PORT`), then add a **Custom (OpenAI-compat
 - Delete session now removes the whole `data/sessions/<id>/` folder (auth, media, memory).
 - My Files page: Delete button + `POST /api/user/files/delete` (phone/PIN auth, path-traversal guarded).
 
+### Phase 8 — env-seeded provider pool, call-only AI, chat isolation (latest)
+- Provider keys are **not** stored in the repository (GitHub push protection blocks that). The bot reads
+  them from the environment: `GROQ_API_KEY`, `GEMINI_API_KEY`, `MISTRAL_API_KEY`, `OPENROUTER_API_KEY`,
+  `DEEPSEEK_API_KEY`, `NVIDIA_API_KEY`, `COHERE_API_KEY`, `MODELSCOPE_API_KEY`, `DASHSCOPE_API_KEY`,
+  `AI21_API_KEY`, `OLLAMA_CLOUD_API_KEY`, `CLOUDFLARE_API_KEY` + `CLOUDFLARE_ACCOUNT_ID`,
+  `FREELLM_API_KEY` + `FREELLM_BASE_URL`. Comma-separated values become separate pool members.
+  One-shot alternative: `AI_PROVIDERS_JSON` with the full provider array. A machine-local list can also
+  live in `data/ai-providers.json` (git-ignored).
+- Seeded providers are merged into every settings load, so a fresh deploy always has a working sticky
+  failover pool. Order = priority; localhost URLs are skipped in the pool (they can't work in cloud).
+- Failover budget: 15 s per provider, 40 s total, so unreachable endpoints can't stall a reply.
+- The AI now speaks **only when called**: bare `ai` calls it in (cool arrival line), `ai <question>`
+  asks something, `<name>` / `@<name>` calls a persona, "enough"/"stop"/"leave"/"@<name> leave" dismisses it.
+  Plain chat is never answered unsolicited; persona sessions expire after 45 min idle.
+- Replies see the quoted message (`replying to: "…"`) and the last turns from this contact's memory.
+- Isolation: group chats never receive per-contact memory, persona sessions are scoped per linked bot
+  (two bots in one group no longer share history), and the bot never processes its own outgoing messages
+  (self-reply loop guard).
+- Anti-spam: prompt forbids filler ("I'm here to help", "What's on your mind?") and `isFillerReply()`
+  silently drops any such reply before it is sent.
+
 ## Ideas / not scheduled
 - Website read-only view of per-chat toggles.
 - Persona/auto-respond management inside the Telegram bot.

@@ -53,7 +53,7 @@ export interface AiRule {
 
 export type AiProviderKind =
   | "ai21" | "cohere" | "dashscope" | "modelscope" | "nvidia"
-  | "ollama" | "openrouter" | "gemini" | "groq" | "mistral"
+  | "ollama" | "openrouter" | "gemini" | "groq" | "mistral" | "deepseek"
   | "custom" | "openai" | "anthropic";
 
 export interface AiProviderConfig {
@@ -86,11 +86,118 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { kind: "gemini", label: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", defaultModel: "gemini-2.5-flash", requiresKey: true, hint: "aistudio.google.com → API key" },
   { kind: "groq", label: "Groq", baseUrl: "https://api.groq.com/openai/v1", defaultModel: "llama-3.3-70b-versatile", requiresKey: true, hint: "console.groq.com/keys" },
   { kind: "mistral", label: "Mistral", baseUrl: "https://api.mistral.ai/v1", defaultModel: "mistral-small-latest", requiresKey: true, hint: "console.mistral.ai → API keys" },
+  { kind: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", defaultModel: "deepseek-chat", requiresKey: true, hint: "platform.deepseek.com → API keys" },
   { kind: "custom", label: "Custom (OpenAI-compatible)", baseUrl: "", defaultModel: "", requiresKey: false, hint: "Any OpenAI-compatible endpoint (FreeLLM, vLLM, LM Studio…)" },
 ];
 
 export function providerPreset(kind: string): ProviderPreset | undefined {
   return PROVIDER_PRESETS.find(p => p.kind === kind);
+}
+
+/**
+ * Built-in providers so a deployment always has a working failover pool.
+ *
+ * Keys come from the environment (or an optional JSON file) — never from the
+ * repository, so they can't leak into git history. Order = failover priority
+ * (fast, reliable providers first). The sticky pool rotates automatically.
+ *
+ * Recognised variables:
+ *   GROQ_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY, OPENROUTER_API_KEY,
+ *   DEEPSEEK_API_KEY, NVIDIA_API_KEY, COHERE_API_KEY, MODELSCOPE_API_KEY,
+ *   DASHSCOPE_API_KEY, AI21_API_KEY, OLLAMA_CLOUD_API_KEY,
+ *   CLOUDFLARE_API_KEY (+ CLOUDFLARE_ACCOUNT_ID),
+ *   FREELLM_API_KEY (+ FREELLM_BASE_URL),
+ *   AI_PROVIDERS_JSON — full provider list as JSON, overrides everything else.
+ *
+ * Comma-separated values (OPENROUTER_API_KEY, DEEPSEEK_API_KEY) become
+ * separate pool members, so several keys of one provider rotate automatically.
+ */
+/** Optional local provider list (data/ai-providers.json) — git-ignored, machine-local. */
+function readProviderFile(): string | null {
+  try {
+    const file = path.join(process.cwd(), "data", "ai-providers.json");
+    if (!fs.existsSync(file)) return null;
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function seedFromEnv(): AiProviderConfig[] {
+  const out: AiProviderConfig[] = [];
+
+  const json = process.env.AI_PROVIDERS_JSON ?? readProviderFile();
+  if (json) {    try {
+      const parsed = JSON.parse(json);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter(p => p && typeof p.id === "string" && typeof p.apiKey === "string")
+          .map(p => ({
+            id: p.id,
+            provider: (p.provider || "custom") as AiProviderKind,
+            apiKey: p.apiKey,
+            model: p.model || "",
+            baseUrl: p.baseUrl,
+            label: p.label || p.id,
+          }));
+      }
+    } catch { /* fall through to env vars */ }
+  }
+
+  const add = (
+    id: string,
+    provider: AiProviderKind,
+    envName: string,
+    model: string,
+    label: string,
+    baseUrl?: string,
+    accountEnv?: string
+  ) => {
+    const raw = process.env[envName];
+    if (!raw) return;
+    const keys = raw.split(",").map(k => k.trim()).filter(Boolean);
+    keys.forEach((key, i) => {
+      const suffix = keys.length > 1 ? `_${i + 1}` : "";
+      out.push({
+        id: `${id}${suffix}`,
+        provider,
+        apiKey: key,
+        model,
+        baseUrl: baseUrl ? baseUrl.replace("{account}", process.env[accountEnv || ""] || "") : undefined,
+        label: keys.length > 1 ? `${label} ${i + 1}` : label,
+      });
+    });
+  };
+
+  add("seed_groq", "groq", "GROQ_API_KEY", "llama-3.3-70b-versatile", "Groq");
+  add("seed_gemini", "gemini", "GEMINI_API_KEY", "gemini-2.5-flash", "Gemini");
+  add("seed_mistral", "mistral", "MISTRAL_API_KEY", "mistral-small-latest", "Mistral");
+  add("seed_openrouter", "openrouter", "OPENROUTER_API_KEY", "meta-llama/llama-3.3-70b-instruct:free", "OpenRouter");
+  add("seed_deepseek", "deepseek", "DEEPSEEK_API_KEY", "deepseek-chat", "DeepSeek");
+  add("seed_nvidia", "nvidia", "NVIDIA_API_KEY", "meta/llama-3.3-70b-instruct", "NVIDIA");
+  add("seed_cohere", "cohere", "COHERE_API_KEY", "command-r7b-12-2024", "Cohere");
+  add("seed_modelscope", "modelscope", "MODELSCOPE_API_KEY", "Qwen/Qwen2.5-72B-Instruct", "ModelScope");
+  add("seed_dashscope", "dashscope", "DASHSCOPE_API_KEY", "qwen-plus", "DashScope");
+  add("seed_ai21", "ai21", "AI21_API_KEY", "jamba-mini", "AI21");
+  add("seed_ollama_cloud", "custom", "OLLAMA_CLOUD_API_KEY", "gpt-oss:20b", "Ollama Cloud", "https://ollama.com/v1");
+  add("seed_cloudflare", "custom", "CLOUDFLARE_API_KEY", "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "Cloudflare Workers AI",
+    "https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1", "CLOUDFLARE_ACCOUNT_ID");
+  add("seed_freellm", "custom", "FREELLM_API_KEY", "auto", "FreeLLM (tunnel)", process.env.FREELLM_BASE_URL || "");
+
+  return out;
+}
+
+/** Append any built-in provider that isn't configured yet; pick a default if none. */
+export function withSeedProviders(s: BotSettings): BotSettings {
+  const list = (s.aiProviders ?? []).slice();
+  for (const seed of seedFromEnv()) {
+    if (!list.some(p => p?.id === seed.id)) list.push(seed);
+  }
+  return {
+    ...s,
+    aiProviders: list,
+    defaultAiProvider: s.defaultAiProvider || list[0]?.id || "",
+  };
 }
 
 export interface AiPersona {
@@ -188,17 +295,17 @@ function writeSettingsFile(s: BotSettings): void {
 
 export function loadSettings(): BotSettings {
   // Try to synchronously read from the file cache; DB load happens async in applySettings startup flow
-  return readSettingsFile() ?? { ...DEFAULT_SETTINGS, features: { ...DEFAULT_SETTINGS.features } };
+  return withSeedProviders(readSettingsFile() ?? { ...DEFAULT_SETTINGS, features: { ...DEFAULT_SETTINGS.features } });
 }
 
 export async function loadSettingsFromDb(): Promise<BotSettings> {
   const row = await dbQuery("SELECT data FROM bot_settings WHERE id = 'default' LIMIT 1");
   if (row?.rows?.[0]?.data) {
     const parsed = row.rows[0].data as Partial<BotSettings>;
-    return { ...DEFAULT_SETTINGS, ...parsed, features: { ...DEFAULT_SETTINGS.features, ...parsed.features } };
+    return withSeedProviders({ ...DEFAULT_SETTINGS, ...parsed, features: { ...DEFAULT_SETTINGS.features, ...parsed.features } });
   }
   // Fall back to file
-  return readSettingsFile() ?? { ...DEFAULT_SETTINGS, features: { ...DEFAULT_SETTINGS.features } };
+  return withSeedProviders(readSettingsFile() ?? { ...DEFAULT_SETTINGS, features: { ...DEFAULT_SETTINGS.features } });
 }
 
 export function saveSettings(s: BotSettings): void {
@@ -234,7 +341,11 @@ export function getActiveAiProvider(s: BotSettings): AiProviderConfig | null {
  * callAiWithPool() walks this list and silently switches on failure.
  */
 export function getProviderPool(s: BotSettings, preferredId?: string): AiProviderConfig[] {
-  const all = (s.aiProviders ?? []).filter(p => p?.id);
+  // A localhost endpoint can only ever work on the machine running the bot;
+  // in the cloud it would just burn the timeout on every first reply.
+  const all = (s.aiProviders ?? []).filter(
+    p => p?.id && !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])/i.test(p.baseUrl ?? "")
+  );
   const pool: AiProviderConfig[] = [];
   const push = (p?: AiProviderConfig | null) => {
     if (p && !pool.some(x => x.id === p.id)) pool.push(p);
