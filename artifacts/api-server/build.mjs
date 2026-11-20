@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import esbuild from 'esbuild-wasm';
+import * as esbuildModule from 'esbuild-wasm';
+const esbuild = esbuildModule.build || esbuildModule.default || esbuildModule;
 import esbuildPluginPino from "esbuild-plugin-pino";
 import { rm } from "node:fs/promises";
 

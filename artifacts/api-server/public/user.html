@@ -1,238 +1,190 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Link Your WhatsApp</title>
+    <title>Link Your WhatsApp – NovaBot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
+        :root {
+            --bg: #0a0c10;
+            --bg-elevated: #12151b;
+            --card: #161a22;
+            --border: #242a38;
+            --border-hover: #00d47e;
+            --text: #e8eaed;
+            --text-muted: #7a8295;
+            --text-dim: #4a5265;
+            --accent: #00d47e;
+            --accent-dim: #00d47e22;
+            --accent-hover: #00e88a;
+            --danger: #ff4d6a;
+            --danger-dim: #ff4d6a22;
+            --warning: #ffb800;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --shadow: 0 4px 24px rgba(0,0,0,0.4);
+            --shadow-lg: 0 12px 48px rgba(0,0,0,0.5);
+            --transition: 160ms ease;
         }
-
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg: #f5f7fa; --bg-elevated: #ffffff; --card: #ffffff; --card-hover: #f0f4f8;
+                --border: #e0e6ed; --border-hover: #00b86b; --text: #1a1f2e; --text-muted: #6b7280;
+                --text-dim: #9ca3af; --accent: #00b86b; --accent-dim: #00b86b1a; --accent-hover: #00a35f;
+                --shadow: 0 4px 24px rgba(15,23,42,0.08); --shadow-lg: 0 12px 48px rgba(15,23,42,0.12);
+            }
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html { font-size: 15px; }
         body {
-            background: #0f1117;
-            color: #e6e6e6;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
+            background: var(--bg); color: var(--text); font-family: 'Space Grotesk', -apple-system, sans-serif;
+            min-height: 100vh; line-height: 1.5; -webkit-font-smoothing: antialiased;
+            display: flex; justify-content: center; align-items: center; padding: clamp(16px, 4vw, 32px);
         }
-
         .container {
-            background: #1a1d26;
-            border: 1px solid #252933;
-            border-radius: 16px;
-            padding: 40px 30px;
-            width: 100%;
-            max-width: 420px;
+            background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-lg);
+            padding: clamp(32px, 5vw, 48px); width: 100%; max-width: 440px; box-shadow: var(--shadow-lg);
+            animation: slideUp 0.4s ease-out;
         }
-
-        h1 {
-            color: #00ff88;
-            font-size: 22px;
-            margin-bottom: 8px;
-        }
-
-        .subtitle {
-            color: #888;
-            font-size: 14px;
-            margin-bottom: 30px;
-            line-height: 1.5;
-        }
-
-        label {
-            display: block;
-            font-size: 13px;
-            color: #888;
-            margin-bottom: 6px;
-            margin-top: 16px;
-        }
-
-        input {
-            width: 100%;
-            background: #0f1117;
-            border: 1px solid #252933;
-            color: #e6e6e6;
-            padding: 14px;
-            border-radius: 10px;
-            font-size: 15px;
-            outline: none;
-        }
-
-        input:focus {
-            border-color: #00ff88;
-        }
-
-        .btn {
-            width: 100%;
-            background: #00ff88;
-            color: #0f1117;
-            border: none;
-            padding: 14px;
-            border-radius: 10px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            margin-top: 24px;
-        }
-
-        .btn:hover {
-            background: #00cc6a;
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .btn.secondary {
-            background: transparent;
-            color: #e6e6e6;
-            border: 1px solid #333;
-        }
-
-        .btn.secondary:hover {
-            background: #1a1d26;
-        }
-
-        .pairing-code {
-            background: #0f1117;
-            border: 2px solid #00ff88;
-            border-radius: 12px;
-            padding: 24px;
-            text-align: center;
-            margin-top: 24px;
-        }
-
-        .pairing-code .code {
-            font-size: 34px;
-            font-weight: bold;
-            letter-spacing: 6px;
-            color: #00ff88;
-            font-family: monospace;
-            margin: 12px 0;
-        }
-
-        .pairing-code .hint {
-            font-size: 12px;
-            color: #888;
-            margin-top: 12px;
-            line-height: 1.6;
-        }
-
-        .error {
-            background: #ff475722;
-            border: 1px solid #ff4757;
-            color: #ff8888;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 13px;
-            margin-top: 16px;
-        }
-
-        .success {
-            background: #00ff8822;
-            border: 1px solid #00ff88;
-            color: #00ff88;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 13px;
-            margin-top: 16px;
-        }
-
-        .settings-panel {
-            margin-top: 24px;
-        }
-
-        .toggle-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 14px 0;
-            border-bottom: 1px solid #252933;
-        }
-
-        .toggle-row:last-child {
-            border-bottom: none;
-        }
-
-        .toggle-row span {
-            font-size: 14px;
-        }
-
-        .switch {
-            position: relative;
-            width: 44px;
-            height: 24px;
-            background: #252933;
-            border-radius: 12px;
-            cursor: pointer;
-            transition: 0.2s;
-        }
-
-        .switch.on {
-            background: #00ff88;
-        }
-
-        .switch::after {
-            content: '';
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 20px;
-            height: 20px;
-            background: white;
-            border-radius: 50%;
-            transition: 0.2s;
-        }
-
-        .switch.on::after {
-            left: 22px;
-        }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .header { text-align: center; margin-bottom: clamp(24px, 4vw, 32px); }
+        .icon { width: 56px; height: 56px; border-radius: var(--radius-md); background: var(--accent-dim); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 16px; color: var(--accent); font-size: 1.5rem; }
+        .title { font-size: clamp(1.25rem, 3vw, 1.5rem); font-weight: 700; margin-bottom: 6px; }
+        .subtitle { color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; }
+        .form-group { margin-bottom: 18px; }
+        .form-label { display: block; font-size: 0.8rem; font-weight: 500; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .form-input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 14px 16px; border-radius: var(--radius-md); font-family: inherit; font-size: 1rem; transition: all var(--transition); }
+        .form-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+        .form-input::placeholder { color: var(--text-dim); }
+        .form-input.error { border-color: var(--danger); }
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 20px; border-radius: var(--radius-md); font-family: inherit; font-size: 1rem; font-weight: 600; cursor: pointer; border: none; transition: all var(--transition); text-decoration: none; width: 100%; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: var(--accent); color: var(--bg); }
+        .btn-primary:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 4px 16px var(--accent-dim); }
+        .btn-secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+        .btn-secondary:hover:not(:disabled) { background: var(--card-hover); border-color: var(--text-dim); }
+        .btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid transparent; }
+        .btn-ghost:hover:not(:disabled) { background: var(--card); color: var(--text); }
+        .error { background: var(--danger-dim); border: 1px solid var(--danger); color: var(--danger); padding: 12px 16px; border-radius: var(--radius-md); font-size: 0.85rem; display: none; margin-top: 16px; animation: shake 0.3s ease; }
+        @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
+        .success { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); padding: 12px 16px; border-radius: var(--radius-md); font-size: 0.85rem; display: none; margin-top: 16px; }
+        .pairing-code { background: var(--bg); border: 2px solid var(--accent); border-radius: var(--radius-md); padding: 24px; text-align: center; margin-top: 24px; }
+        .pairing-code .label { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px; }
+        .pairing-code .code { font-size: 2.5rem; font-weight: 700; letter-spacing: 0.3em; color: var(--accent); font-family: 'Space Grotesk', monospace; margin: 8px 0; word-break: break-all; }
+        .pairing-code .hint { font-size: 0.8rem; color: var(--text-muted); line-height: 1.6; margin-top: 12px; }
+        .timer { font-size: 0.75rem; color: var(--warning); margin-top: 8px; font-family: monospace; }
+        .step { display: none; }
+        .step.active { display: block; animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .status-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px; margin-top: 20px; }
+        .status-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
+        .status-row:last-child { border-bottom: none; }
+        .status-label { font-size: 0.9rem; color: var(--text); display: flex; align-items: center; gap: 10px; }
+        .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 100px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+        .status-badge.connected { background: var(--accent-dim); color: var(--accent); }
+        .status-badge.connecting { background: #3b82f622; color: #3b82f6; }
+        .status-badge.disconnected { background: var(--danger-dim); color: var(--danger); }
+        .switch { position: relative; width: 44px; height: 24px; background: var(--border); border-radius: 12px; cursor: pointer; transition: background var(--transition); flex-shrink: 0; }
+        .switch.on { background: var(--accent); }
+        .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: white; border-radius: 50%; transition: transform var(--transition); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .switch.on::after { transform: translateX(20px); }
+        .actions { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+        .actions .btn { flex: 1; min-width: 120px; }
+        .spinner { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; display: none; }
+        .spinner.show { display: inline-block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .qr-section { margin-top: 20px; text-align: center; }
+        .qr-section img { max-width: 220px; border-radius: var(--radius-sm); background: white; padding: 10px; }
+        .qr-section .hint { margin-top: 12px; font-size: 0.8rem; color: var(--text-muted); }
+        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; } }
+        :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     </style>
 </head>
-
 <body>
-
     <div class="container">
-        <h1>🤖 Link Your WhatsApp</h1>
-        <p class="subtitle">Enter your phone number to link your WhatsApp account to the bot.</p>
+        <header class="header">
+            <div class="icon" aria-hidden="true">🤖</div>
+            <h1 class="title">Link Your WhatsApp</h1>
+            <p class="subtitle">Enter your phone number to connect your WhatsApp account to NovaBot.</p>
+        </header>
 
-        <!-- Step 1: Phone input -->
-        <div id="step-phone">
-            <label>Your phone number (with country code)</label>
-            <input type="tel" id="phone" placeholder="e.g., 2348103077073" />
-            <button class="btn" id="submit-btn" onclick="linkPhone()">Get Pairing Code</button>
-            <div id="error" class="error" style="display:none;"></div>
+        <!-- Step 1: Phone Input -->
+        <div class="step active" id="step-phone">
+            <form id="phone-form" novalidate>
+                <div class="form-group">
+                    <label class="form-label" for="phone">Phone Number</label>
+                    <input type="tel" id="phone" class="form-input" placeholder="e.g., 2348103077073" inputmode="tel" autocomplete="tel" required aria-describedby="phone-hint">
+                    <span id="phone-hint" style="display:block;font-size:0.75rem;color:var(--text-dim);margin-top:6px;">With country code, no + or spaces</span>
+                </div>
+                <button type="submit" class="btn btn-primary" id="phone-btn">
+                    <span class="btn-text">Get Pairing Code</span>
+                    <span class="spinner" id="phone-spinner" aria-hidden="true"></span>
+                </button>
+                <div class="error" id="phone-error" role="alert" aria-live="polite"></div>
+            </form>
         </div>
 
-        <!-- Step 2: Pairing code -->
-        <div id="step-code" style="display:none;">
+        <!-- Step 2: Pairing Code -->
+        <div class="step" id="step-code">
             <div class="pairing-code">
-                <div style="font-size: 13px; color: #888;">Enter this code in WhatsApp</div>
+                <div class="label">Enter this code in WhatsApp</div>
                 <div class="code" id="code-text">--------</div>
                 <div class="hint">
                     WhatsApp → Settings → Linked Devices → Link with Phone Number
                 </div>
+                <div class="timer" id="code-timer">Code expires in 20 seconds</div>
             </div>
-            <button class="btn secondary" onclick="location.reload()">Done</button>
+            <div class="actions">
+                <button class="btn btn-secondary" onclick="location.reload()">Done</button>
+                <button class="btn btn-ghost" onclick="retryCode()">Retry</button>
+            </div>
         </div>
 
-        <!-- Step 3: Settings (if already linked) -->
-        <div id="step-settings" style="display:none;">
-            <div class="success">✅ Your WhatsApp is linked!</div>
-            <div class="settings-panel" id="settings-list"></div>
-            <button class="btn secondary" style="margin-top: 20px;" onclick="location.reload()">Refresh</button>
+        <!-- Step 3: Connected / Settings -->
+        <div class="step" id="step-connected">
+            <div class="success" style="display:block;text-align:center;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;vertical-align:middle;"><polyline points="20 6 9 17 4 12"/></svg>
+                Your WhatsApp is connected!
+            </div>
+            <div class="status-card">
+                <div class="status-row">
+                    <span class="status-label">Status</span>
+                    <span class="status-badge connected" id="status-badge">Connected</span>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">Phone</span>
+                    <span id="connected-phone" style="color:var(--text-muted);font-family:monospace;"></span>
+                </div>
+            </div>
+            <div class="actions">
+                <a href="/user-settings" class="btn btn-primary">Manage Settings</a>
+                <a href="/my-files" class="btn btn-secondary">View Files</a>
+            </div>
+        </div>
+
+        <!-- Step 4: Error / Disconnected -->
+        <div class="step" id="step-error">
+            <div class="error" style="display:block;text-align:center;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;vertical-align:middle;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                Connection issue
+            </div>
+            <p style="text-align:center;color:var(--text-muted);margin:16px 0;">Your session may have expired or was logged out.</p>
+            <div class="actions">
+                <button class="btn btn-primary" onclick="location.reload()">Try Again</button>
+                <a href="/admin" class="btn btn-secondary">Admin Panel</a>
+            </div>
         </div>
     </div>
 
     <script>
         const API = '/api';
+        let currentSessionId = '';
+        let currentPhone = '';
+        let timerInterval = null;
 
         // Grab phone from URL if provided (e.g., /user?phone=234...)
         const urlParams = new URLSearchParams(location.search);
@@ -241,99 +193,192 @@
             document.getElementById('phone').value = phoneFromUrl;
         }
 
+        function showStep(stepId) {
+            document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+            document.getElementById(stepId).classList.add('active');
+        }
+
+        function setLoading(btnId, loading) {
+            const btn = document.getElementById(btnId);
+            const text = btn.querySelector('.btn-text');
+            const spinner = btn.querySelector('.spinner');
+            if (loading) {
+                btn.disabled = true;
+                text.style.display = 'none';
+                spinner.classList.add('show');
+            } else {
+                btn.disabled = false;
+                text.style.display = 'inline';
+                spinner.classList.remove('show');
+            }
+        }
+
+        function showError(elId, message) {
+            const el = document.getElementById(elId);
+            el.textContent = message;
+            el.style.display = 'block';
+        }
+
+        function hideError(elId) {
+            document.getElementById(elId).style.display = 'none';
+        }
+
+        function startCodeTimer() {
+            let seconds = 20;
+            const timerEl = document.getElementById('code-timer');
+            timerEl.textContent = `Code expires in ${seconds} seconds`;
+            timerInterval = setInterval(() => {
+                seconds--;
+                if (seconds <= 0) {
+                    clearInterval(timerInterval);
+                    timerEl.textContent = 'Code expired — click Retry';
+                    timerEl.style.color = 'var(--danger)';
+                } else {
+                    timerEl.textContent = `Code expires in ${seconds} seconds`;
+                }
+            }, 1000);
+        }
+
+        function stopCodeTimer() {
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        }
+
+        async function checkSession(sessionId) {
+            try {
+                const res = await fetch(`${API}/sessions/${sessionId}`);
+                const data = await res.json();
+                return data.ok ? data.session : null;
+            } catch {
+                return null;
+            }
+        }
+
+        async function createSession(sessionId, phone, label) {
+            const res = await fetch(`${API}/sessions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: sessionId, label: label || `+${phone}` })
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'Failed to create session');
+            return data;
+        }
+
+        async function requestPairingCode(sessionId, phone) {
+            const res = await fetch(`${API}/sessions/${sessionId}/pairing`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone })
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'Failed to get pairing code');
+            return data.code;
+        }
+
         async function linkPhone() {
             const phone = document.getElementById('phone').value.trim();
-            const errEl = document.getElementById('error');
-            const btn = document.getElementById('submit-btn');
+            const btn = document.getElementById('phone-btn');
 
             if (!phone) {
-                errEl.textContent = 'Please enter your phone number.';
-                errEl.style.display = 'block';
+                showError('phone-error', 'Please enter your phone number.');
+                return;
+            }
+            if (phone.replace(/\D/g, '').length < 7) {
+                showError('phone-error', 'Invalid phone number.');
                 return;
             }
 
-            const sessionId = 'user_' + phone.replace(/\D/g, '');
-
-            btn.disabled = true;
-            btn.textContent = 'Checking...';
-            errEl.style.display = 'none';
+            hideError('phone-error');
+            setLoading('phone-btn', true);
+            currentPhone = phone.replace(/\D/g, '');
+            currentSessionId = `user_${currentPhone}`;
 
             try {
-                // Check if session already exists and is connected
-                const checkRes = await fetch(`${API}/sessions/${sessionId}`);
-                const checkData = await checkRes.json();
-
-                if (checkData.ok && checkData.session.status === 'connected') {
-                    // Already linked — show settings
-                    showSettings(checkData.session);
+                // Check existing session
+                const session = await checkSession(currentSessionId);
+                if (session && session.status === 'connected') {
+                    showConnected(session);
                     return;
                 }
 
-                // Create a new session
-                const createRes = await fetch(`${API}/sessions`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: sessionId, label: '+ ' + phone })
-                });
-                const createData = await createRes.json();
-                if (!createData.ok) throw new Error(createData.error || 'Failed to create session');
+                // Create/restart session
+                await createSession(currentSessionId, currentPhone, `+${currentPhone}`);
 
-                // Wait for socket to init
-                await new Promise(r => setTimeout(r, 2500));
+                // Wait for socket to initialize
+                await waitForSocketReady(currentSessionId);
 
-                // Request pairing code
-                const pairRes = await fetch(`${API}/sessions/${sessionId}/pairing`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone })
-                });
-                const pairData = await pairRes.json();
-                if (!pairData.ok) throw new Error(pairData.error || 'Failed to get pairing code');
+                // Request pairing code with retries
+                let code = null;
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        code = await requestPairingCode(currentSessionId, currentPhone);
+                        break;
+                    } catch (e) {
+                        if (attempt < 3) {
+                            await new Promise(r => setTimeout(r, 2000 * attempt));
+                        } else {
+                            throw e;
+                        }
+                    }
+                }
 
-                // Show code
-                document.getElementById('step-phone').style.display = 'none';
-                document.getElementById('step-code').style.display = 'block';
-                document.getElementById('code-text').textContent = pairData.code;
-
+                showPairingCode(code);
             } catch (e) {
-                errEl.textContent = e.message;
-                errEl.style.display = 'block';
-                btn.disabled = false;
-                btn.textContent = 'Get Pairing Code';
+                showError('phone-error', e.message);
+                setLoading('phone-btn', false);
             }
         }
 
-        function showSettings(session) {
-            document.getElementById('step-phone').style.display = 'none';
-            document.getElementById('step-settings').style.display = 'block';
-
-            const settings = [
-                { key: 'viewOnce', label: '📸 Save view-once media' },
-                { key: 'autoReact', label: '❤️ Auto-like statuses' },
-                { key: 'autoPresence', label: '✍️ Show typing/recording' },
-                { key: 'antiDelete', label: '🗑️ Save deleted messages' },
-                { key: 'aiChat', label: '🤖 AI chat replies' },
-            ];
-
-            const container = document.getElementById('settings-list');
-            container.innerHTML = settings.map(s => `
-    <div class="toggle-row">
-      <span>${s.label}</span>
-      <div class="switch" data-key="${s.key}" onclick="toggleSetting(this)"></div>
-    </div>
-  `).join('');
+        async function waitForSocketReady(sessionId, maxWait = 30000) {
+            const start = Date.now();
+            while (Date.now() - start < maxWait) {
+                const session = await checkSession(sessionId);
+                if (session && (session.status === 'connecting' || session.status === 'qr')) {
+                    return;
+                }
+                await new Promise(r => setTimeout(r, 1000));
+            }
+            // Don't throw — just proceed and let pairing attempt handle it
         }
 
-        async function toggleSetting(el) {
-            el.classList.toggle('on');
-            // TODO: call API to save setting
+        function showPairingCode(code) {
+            stopCodeTimer();
+            document.getElementById('code-text').textContent = code;
+            startCodeTimer();
+            setLoading('phone-btn', false);
+            showStep('step-code');
         }
 
-        // Auto-check if the user is already linked when page loads
+        function showConnected(session) {
+            stopCodeTimer();
+            document.getElementById('connected-phone').textContent = '+' + (session.phoneNumber || currentPhone);
+            document.getElementById('status-badge').textContent = session.status;
+            document.getElementById('status-badge').className = 'status-badge ' + session.status;
+            showStep('step-connected');
+        }
+
+        async function retryCode() {
+            const btn = document.getElementById('phone-btn');
+            setLoading('phone-btn', true);
+            try {
+                const code = await requestPairingCode(currentSessionId, currentPhone);
+                showPairingCode(code);
+            } catch (e) {
+                showError('phone-error', e.message);
+                setLoading('phone-btn', false);
+            }
+        }
+
+        // Bind form submit
+        document.getElementById('phone-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            linkPhone();
+        });
+
+        // Auto-link if phone in URL
         if (phoneFromUrl) {
             linkPhone();
         }
     </script>
 </body>
-
 </html>

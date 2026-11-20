@@ -21,12 +21,26 @@ router.post("/user/files", async (req, res) => {
 
         const urls = (files || []).map(f => {
             const { data } = supabase.storage.from("saved_media").getPublicUrl(`${cleanPhone}/${f.name}`);
-            return { name: f.name, url: data.publicUrl, created_at: f.created_at, size: f.metadata?.size };
+            const ext = f.name.split('.').pop()?.toLowerCase() || '';
+            let type = 'file';
+            if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) type = 'image';
+            else if (['mp4', 'webm', 'mov', 'mkv'].includes(ext)) type = 'video';
+            else if (['ogg', 'opus', 'mp3', 'm4a', 'wav'].includes(ext)) type = 'audio';
+            return { 
+                name: f.name, 
+                url: data.publicUrl, 
+                created_at: f.created_at, 
+                size: f.metadata?.size,
+                type,
+                ext 
+            };
         });
 
         res.json({ ok: true, files: urls });
+        return;
     } catch (e: any) {
         res.status(500).json({ ok: false, error: e.message });
+        return;
     }
 });
 

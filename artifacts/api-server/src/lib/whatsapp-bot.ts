@@ -1,5 +1,5 @@
 /**
- * WhatsApp Bot – All‑in‑One (Fully Working)
+ * WhatsApp Bot – All‑in‑One
  */
 import makeWASocket, {
   Browsers,
@@ -17,14 +17,30 @@ import { Boom } from "@hapi/boom";
 import fs from "fs";
 import path from "path";
 import pino from "pino";
+import { createClient } from "@supabase/supabase-js";
 import { startSustainedTyping, showRecording } from "./features/presence";
 import sharp from "sharp";
+import { currentSettings, applySettings, type AiProviderConfig } from "./settings";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const BASE_DIR = path.join(process.cwd(), "data");
 const MEDIA_DIR = path.join(BASE_DIR, "saved_media");
 const CUSTOM_COMMANDS_FILE = path.join(BASE_DIR, "custom_commands.json");
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
+
+// ── Supabase client ─────────────────────────────────────────────────────────
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_ANON_KEY!
+);
+
+// ── In‑memory view‑once cache for groups (for .vv command) ────────────────
+const voCache = new Map<string, {
+  mediaMsg: { url?: string; directPath?: string; mediaKey?: unknown; mimetype?: string };
+  mediaType: "image" | "video";
+  senderJid: string;
+  chatJid: string;
+}>();
 
 export const CMD = ".";
 const SESSIONS_FILE = path.join(BASE_DIR, "sessions_list.json");
@@ -57,14 +73,14 @@ function unregisterSession(id: string): void {
   saveSessionIds(list);
 }
 
-// ── Session registry (must come before exports that use it) ───────────────
+// ── Session registry ────────────────────────────────────────────────────────
 const sessions = new Map<string, any>();
 
 function addLog(state: any, msg: string) {
   console.log(`[WA]`, msg);
 }
 
-// ── Exports for dashboard & API ──────────────────────────────────────────
+// ── Exports for dashboard & API ────────────────────────────────────────────
 export const botState = {
   get status() { return sessions.get("default")?.status ?? "disconnected"; },
   get qrDataUrl() { return sessions.get("default")?.qrDataUrl ?? null; },
@@ -95,7 +111,7 @@ export function getSessionState(id: string) {
     label: s.label,
     status: s.status,
     qrDataUrl: s.qrDataUrl,
-    pairingCode: s.pairingCode,       // ← ADDED THIS
+    pairingCode: s.pairingCode,
     phoneNumber: s.phoneNumber,
     savedFiles: s.savedFiles,
     log: s.log,
@@ -125,7 +141,6 @@ export function stopSession(id: string): void {
 export async function requestPairingCode(id: string, phone: string): Promise<string> {
   const s = sessions.get(id);
   if (!s) throw new Error("Session not found");
-  // If we already have a code from startSession, return it
   if (s.pairingCode) return s.pairingCode;
   if (!s._sock) throw new Error("Session not ready yet — try again in 5 seconds");
   const cleanPhone = phone.replace(/\D/g, "");
@@ -136,30 +151,14 @@ export async function requestPairingCode(id: string, phone: string): Promise<str
   return code;
 }
 
-// ── Custom commands ──────────────────────────────────────────────────────
+// ── Custom commands ────────────────────────────────────────────────────────
 let customCommands: Record<string, string> = {};
 try {
   customCommands = JSON.parse(fs.readFileSync(CUSTOM_COMMANDS_FILE, "utf-8"));
   console.log(`📂 Loaded ${Object.keys(customCommands).length} custom commands`);
 } catch { /* ignore */ }
 
-// ── View‑once cache ──────────────────────────────────────────────────────
-const CACHE_FILE = path.join(BASE_DIR, "vo-cache.json");
-type CacheEntry = {
-  chatJid: string;
-  senderJid: string;
-  mediaType: "image" | "video" | "audio";
-  mediaMsg: { url?: string; directPath?: string; mediaKey?: unknown; mimetype?: string };
-  savedAt: number;
-};
-function loadCache(): Record<string, CacheEntry> {
-  try { return JSON.parse(fs.readFileSync(CACHE_FILE, "utf8")); } catch { return {}; }
-}
-function saveCache(map: Record<string, CacheEntry>) {
-  try { fs.writeFileSync(CACHE_FILE, JSON.stringify(map)); } catch { /* ignore */ }
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────
 function getOwnerJid(sock: WASocket): string | null {
   const raw = sock.user?.id ?? (sock.user as any)?.lid;
   if (!raw) return null;
@@ -172,11 +171,29 @@ function getOwnerJid(sock: WASocket): string | null {
   return null;
 }
 
+function getAdminNumber(sock: WASocket): string | null {
+  const adminNum = currentSettings?.adminNumber?.replace(/\D/g, "");
+  if (!adminNum) return null;
+  // Try to normalize to a valid JID
+  try {
+    return jidNormalizedUser(`${adminNum}@s.whatsapp.net`);
+  } catch {
+    return `${adminNum}@s.whatsapp.net`;
+  }
+}
+
 function isFromMe(msg: WAMessage, sock: WASocket): boolean {
   const ownerJid = getOwnerJid(sock);
   if (!ownerJid) return false;
   const sender = msg.key.participant ?? msg.key.remoteJid ?? "";
   return sender === ownerJid || msg.key.fromMe === true;
+}
+
+function isAdmin(msg: WAMessage, sock: WASocket): boolean {
+  const adminJid = getAdminNumber(sock);
+  if (!adminJid) return false;
+  const sender = msg.key.participant ?? msg.key.remoteJid ?? "";
+  return sender === adminJid || msg.key.fromMe === true;
 }
 
 function getText(msg: WAMessage): string {
@@ -227,26 +244,7 @@ function extractViewOnceMedia(message: any): {
   return null;
 }
 
-function extractViewOnceFromQuoted(q: Record<string, unknown>): {
-  mediaMsg: MediaMsg; mediaType: "image" | "video";
-} | null {
-  for (const key of ["viewOnceMessage", "viewOnceMessageV2", "viewOnceMessageV2Extension"]) {
-    const w = (q[key] as { message?: Record<string, unknown> } | undefined)?.message;
-    if (w) {
-      const img = w["imageMessage"] as MediaMsg | undefined;
-      const vid = w["videoMessage"] as MediaMsg | undefined;
-      if (img) return { mediaMsg: img, mediaType: "image" };
-      if (vid) return { mediaMsg: vid, mediaType: "video" };
-    }
-  }
-  const img = q["imageMessage"] as MediaMsg | undefined;
-  const vid = q["videoMessage"] as MediaMsg | undefined;
-  if (img) return { mediaMsg: img, mediaType: "image" };
-  if (vid) return { mediaMsg: vid, mediaType: "video" };
-  return null;
-}
-
-// ── Media download ─────────────────────────────────────────────────────
+// ── Media download ────────────────────────────────────────────────────────
 async function downloadMedia(
   mediaMsg: MediaMsg,
   mediaType: "image" | "video" | "audio",
@@ -256,6 +254,21 @@ async function downloadMedia(
     mediaType,
   );
   return toBuffer(stream);
+}
+
+// ── Save to Supabase ──────────────────────────────────────────────────────
+async function saveToSupabase(buffer: Buffer, filename: string, mime: string, phoneNumber?: string): Promise<boolean> {
+  try {
+    // Store under the user's phone number folder for proper organization
+    const phone = phoneNumber || "default";
+    const storagePath = `${phone}/${filename}`;
+    const { error } = await supabase.storage
+      .from("saved_media")
+      .upload(storagePath, buffer, { contentType: mime, upsert: false });
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 // ── Send to owner DM ──────────────────────────────────────────────────────
@@ -280,7 +293,175 @@ async function sendToOwnerDM(
   }
 }
 
-// ── Feature: Auto‑capture view‑once ────────────────────────────────────
+// ── Feature: Auto‑like statuses (uses emoji pool from settings) ──────────
+async function handleStatusReaction(sock: WASocket, msg: WAMessage): Promise<void> {
+  const chatJid = msg.key.remoteJid || "";
+  if (chatJid !== "status@broadcast" && !chatJid.endsWith("@broadcast")) return;
+  if (isFromMe(msg, sock)) return;
+
+  const pool = currentSettings.reactionEmojis;
+  if (!pool.length) return;
+  const emoji = pool[Math.floor(Math.random() * pool.length)];
+  try {
+    await sock.sendMessage(chatJid, {
+      react: { text: emoji, key: msg.key },
+    });
+    console.log(`✅ Liked status with ${emoji}`);
+  } catch (e) {
+    console.error(`❌ Status like failed:`, e);
+  }
+}
+
+// ── AI Rule Matching ────────────────────────────────────────────────────────
+function matchRule(rule: { trigger: string; matchType: "exact" | "contains" | "startsWith" | "endsWith" | "regex" }, text: string): boolean {
+  const t = text.toLowerCase();
+  const trig = rule.trigger.toLowerCase();
+  switch (rule.matchType) {
+    case "exact": return t === trig;
+    case "contains": return t.includes(trig);
+    case "startsWith": return t.startsWith(trig);
+    case "endsWith": return t.endsWith(trig);
+    case "regex": return new RegExp(trig, "i").test(t);
+    default: return false;
+  }
+}
+
+// ── AI Reply Handler ─────────────────────────────────────────────────────────
+async function handleAiReply(
+  sock: WASocket,
+  msg: WAMessage,
+  chatJid: string,
+  senderJid: string,
+  provider: AiProviderConfig,
+  addLogFn: (s: string) => void
+): Promise<void> {
+  const messageText = msg.message?.conversation ?? msg.message?.extendedTextMessage?.text ?? "";
+  if (!messageText.trim()) return;
+
+  try {
+    addLogFn(`🤖 AI thinking for ${senderJid}...`);
+
+    const response = await callAiProvider(provider, messageText);
+    if (response) {
+      await sock.sendMessage(senderJid, { text: response }, { quoted: msg });
+      addLogFn(`🤖 AI replied to ${senderJid}`);
+    }
+  } catch (err) {
+    const errMsg = (err as Error).message;
+    addLogFn(`AI error: ${errMsg}`);
+    await sock.sendMessage(senderJid, { text: `❌ AI error: ${errMsg.slice(0, 150)}` }, { quoted: msg });
+  }
+}
+
+async function callAiProvider(
+  provider: AiProviderConfig,
+  text: string
+): Promise<string | null> {
+  const systemPrompt = currentSettings.aiSystemPrompt || "You are a helpful WhatsApp assistant. Keep responses short and friendly.";
+
+  if (provider.provider === "openai") {
+    return callOpenAI(provider, text, systemPrompt);
+  } else if (provider.provider === "anthropic") {
+    return callAnthropic(provider, text, systemPrompt);
+  } else if (provider.provider === "gemini") {
+    return callGemini(provider, text, systemPrompt);
+  } else if (provider.provider === "custom" && provider.baseUrl) {
+    return callCustom(provider, text, systemPrompt);
+  }
+  return null;
+}
+
+async function callOpenAI(
+  provider: AiProviderConfig,
+  text: string,
+  systemPrompt: string
+): Promise<string> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${provider.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: provider.model || "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: text },
+      ],
+      max_tokens: 500,
+    }),
+  });
+  const data = await res.json() as { choices?: { message?: { content?: string } }[] };
+  return data.choices?.[0]?.message?.content || "(no response)";
+}
+
+async function callAnthropic(
+  provider: AiProviderConfig,
+  text: string,
+  systemPrompt: string
+): Promise<string> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": provider.apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: provider.model || "claude-3-5-haiku-20241022",
+      max_tokens: 500,
+      system: systemPrompt,
+      messages: [{ role: "user", content: text }],
+    }),
+  });
+  const data = await res.json() as { content?: { type: string; text: string }[] };
+  return data.content?.[0]?.text || "(no response)";
+}
+
+async function callGemini(
+  provider: AiProviderConfig,
+  inputText: string,
+  systemPrompt: string
+): Promise<string> {
+  const baseUrl = provider.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
+  const res = await fetch(`${baseUrl}/models/${provider.model || "gemini-2.5-flash"}:generateContent?key=${provider.apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ parts: [{ text: inputText }], role: "user" }],
+      generationConfig: { maxOutputTokens: 500 },
+    }),
+  });
+  const data = await res.json() as any;
+  const response = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  return response || "(no response)";
+}
+
+async function callCustom(
+  provider: AiProviderConfig,
+  text: string,
+  systemPrompt: string
+): Promise<string> {
+  const res = await fetch(`${provider.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${provider.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: provider.model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: text },
+      ],
+      max_tokens: 500,
+    }),
+  });
+  const data = await res.json() as { choices?: { message?: { content?: string } }[] };
+  return data.choices?.[0]?.message?.content || "(no response)";
+}
+
+// ── Feature: View‑once — auto‑save DMs, cache groups for .vv ─────────────
 async function handleViewOnce(
   sock: WASocket,
   msg: WAMessage,
@@ -291,47 +472,48 @@ async function handleViewOnce(
   const extracted = extractViewOnceMedia(msg.message);
   if (!extracted) return;
 
+  const isGroup = chatJid.endsWith("@g.us");
+
+  // Cache the media descriptor for groups — saved when .vv is used
+  if (isGroup) {
+    const msgId = msg.key.id;
+    if (msgId) {
+      const senderJid = msg.key.participant ?? chatJid;
+      voCache.set(msgId, {
+        mediaMsg: extracted.mediaMsg,
+        mediaType: extracted.mediaType as "image" | "video",
+        senderJid,
+        chatJid,
+      });
+      addLogFn(`📦 View-once cached for .vv (group)`);
+    }
+    return;
+  }
+
+  // DMs: auto‑download and forward to owner DM immediately
   const ownerJid = getOwnerJid(sock);
   if (!ownerJid) return;
 
-  const isGroup = chatJid.endsWith("@g.us");
-  const senderJid = isGroup ? (msg.key.participant ?? chatJid) : chatJid;
-  const fromLabel = senderJid.split("@")[0] ?? "unknown";
-  const inLabel = isGroup ? ` in group ${chatJid.split("@")[0]}` : "";
-
-  const msgId = msg.key.id;
-  if (msgId) {
-    const cache = loadCache();
-    if (!cache[msgId]) {
-      cache[msgId] = {
-        chatJid,
-        senderJid,
-        mediaType: extracted.mediaType,
-        mediaMsg: extracted.mediaMsg,
-        savedAt: Date.now(),
-      };
-      saveCache(cache);
-    }
-    addLogFn(`📦 Cached view-once ID: ${msgId}`);
-  }
-
-  addLogFn(`📥 View-once ${extracted.mediaType} from +${fromLabel}${inLabel} — capturing…`);
+  const fromLabel = chatJid.split("@")[0] ?? "unknown";
+  addLogFn(`📥 View-once ${extracted.mediaType} from +${fromLabel} — auto-saving…`);
   try {
     const buffer = await downloadMedia(extracted.mediaMsg, extracted.mediaType);
     const ext = mimeToExt(extracted.mediaMsg.mimetype);
     const mime = extracted.mediaMsg.mimetype ?? "application/octet-stream";
     const filename = `vo_${Date.now()}_${fromLabel}.${ext}`;
-    fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
+
+    const success = await saveToSupabase(buffer, filename, mime);
     addSavedFile(filename);
-    addLogFn(`💾 Saved to ${filename}`);
-    const caption = `🔓 *View-once ${extracted.mediaType}* (auto-saved)\nFrom: +${fromLabel}${inLabel}`;
+    addLogFn(`💾 Saved view-once ${success ? "to Supabase" : "to Supabase failed"}`);
+
+    const caption = `🔓 *View-once ${extracted.mediaType}* (auto-saved)\nFrom: +${fromLabel}`;
     await sendToOwnerDM(sock, ownerJid, buffer, extracted.mediaType, mime, caption, addLogFn);
   } catch (e) {
     addLogFn(`⚠️ Auto-capture failed: ${(e as Error).message}`);
   }
 }
 
-// ── Feature: Reaction trigger ──────────────────────────────────────────
+// ── Feature: Reaction trigger (owner reacts 🙂/😣/🤪/😇/🥺) ──────────────
 async function handleReaction(
   sock: WASocket,
   msg: WAMessage,
@@ -350,28 +532,26 @@ async function handleReaction(
   const originalId = reaction.key?.id ?? "";
   addLogFn(`🔁 Owner reacted ${emoji} on msg ${originalId}`);
 
-  // Try cache (loadMessages fallback not available in this Baileys version)
-  const cache = loadCache();
-  const entry = cache[originalId];
-
+  const entry = voCache.get(originalId);
   if (!entry) {
     addLogFn(`❌ Not found in cache for ${originalId}`);
     return;
   }
 
   const fromLabel = entry.senderJid.split("@")[0] ?? "unknown";
-  const inLabel = entry.chatJid.endsWith("@g.us") ? ` in group ${entry.chatJid.split("@")[0]}` : "";
-  const caption = `🔓 *View-once ${entry.mediaType}* (saved via ${emoji})\nFrom: +${fromLabel}${inLabel}`;
+  const caption = `🔓 *View-once ${entry.mediaType}* (saved via ${emoji})\nFrom: +${fromLabel}`;
 
   addLogFn(`📥 Reaction trigger: downloading ${entry.mediaType}…`);
   try {
-    const buffer = await downloadMedia(entry.mediaMsg as MediaMsg, entry.mediaType);
+    const buffer = await downloadMedia(entry.mediaMsg, entry.mediaType);
     const ext = mimeToExt(entry.mediaMsg.mimetype);
     const mime = entry.mediaMsg.mimetype ?? "application/octet-stream";
     const filename = `vo_react_${Date.now()}_${fromLabel}.${ext}`;
-    fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
+
+    await saveToSupabase(buffer, filename, mime);
     addSavedFile(filename);
     addLogFn(`💾 Saved reaction file: ${filename}`);
+
     const ownerJid = getOwnerJid(sock);
     if (ownerJid) {
       await sendToOwnerDM(sock, ownerJid, buffer, entry.mediaType, mime, caption, addLogFn);
@@ -382,25 +562,7 @@ async function handleReaction(
   }
 }
 
-// ── Feature: Auto‑like statuses ────────────────────────────────────────
-async function handleStatusReaction(sock: WASocket, msg: WAMessage): Promise<void> {
-  const chatJid = msg.key.remoteJid || "";
-  if (chatJid !== "status@broadcast" && !chatJid.endsWith("@broadcast")) return;
-  if (isFromMe(msg, sock)) return;
-
-  const REACTIONS = ["❤️", "🔥", "🥰", "😍", "💯", "😘", "👏", "🙌", "🤗", "✨", "💖", "🌟"];
-  const emoji = REACTIONS[Math.floor(Math.random() * REACTIONS.length)];
-  try {
-    await sock.sendMessage(chatJid, {
-      react: { text: emoji, key: msg.key },
-    });
-    console.log(`✅ Liked status with ${emoji}`);
-  } catch (e) {
-    console.error(`❌ Status like failed:`, e);
-  }
-}
-
-// ── Feature: .save (status media) ──────────────────────────────────────
+// ── Feature: .save (status media) — silent: deletes cmd, saves to DM only ──
 async function handleSaveStatus(
   sock: WASocket,
   msg: WAMessage,
@@ -419,15 +581,23 @@ async function handleSaveStatus(
   const media = (quoted.imageMessage || quoted.videoMessage || quoted.audioMessage) as MediaMsg | undefined;
   if (!media) return false;
 
+  const ownerJid = getOwnerJid(sock);
+  if (!ownerJid) return false;
+
   try {
-    const type: "image" | "video" | "audio" = quoted.imageMessage ? "image" : quoted.videoMessage ? "video" : "audio";
+    const type: "image" | "video" | "audio" =
+      quoted.imageMessage ? "image" : quoted.videoMessage ? "video" : "audio";
     const buffer = await downloadMedia(media, type);
     const ext = mimeToExt(media.mimetype);
     const filename = `status_${Date.now()}.${ext}`;
-    fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
+
+    await saveToSupabase(buffer, filename, media.mimetype ?? "application/octet-stream");
     addSavedFile(filename);
     addLogFn(`💾 Saved status: ${filename}`);
-    await sock.sendMessage(chatJid, { text: `✅ Status saved as ${filename}` });
+
+    // Silent: only send to owner DM, no chat reply
+    const caption = `🔓 *Status ${type}* (saved)\nFrom: +${(ctx.participant ?? "").split("@")[0] || "unknown"}`;
+    await sendToOwnerDM(sock, ownerJid, buffer, type, media.mimetype, caption, addLogFn);
     return true;
   } catch (e) {
     addLogFn(`❌ Save status failed: ${(e as Error).message}`);
@@ -435,7 +605,7 @@ async function handleSaveStatus(
   }
 }
 
-// ── Feature: .sticker ──────────────────────────────────────────────────
+// ── Feature: .sticker ────────────────────────────────────────────────────
 async function handleSticker(
   sock: WASocket,
   msg: WAMessage,
@@ -471,7 +641,7 @@ async function handleSticker(
   }
 }
 
-// ── Feature: .savepp ──────────────────────────────────────────────────
+// ── Feature: .savepp ────────────────────────────────────────────────────
 async function handleSavePP(
   sock: WASocket,
   msg: WAMessage,
@@ -489,10 +659,11 @@ async function handleSavePP(
     const resp = await fetch(pp);
     const buffer = Buffer.from(await resp.arrayBuffer());
     const filename = `pp_${sender.split("@")[0]}.jpg`;
-    fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
+
+    await saveToSupabase(buffer, filename, "image/jpeg");
     addSavedFile(filename);
     addLogFn(`💾 Saved profile picture: ${filename}`);
-    await sock.sendMessage(chatJid, { text: `✅ Profile picture saved as ${filename}` });
+    await sock.sendMessage(chatJid, { text: `✅ Profile picture saved` });
     return true;
   } catch (e) {
     addLogFn(`❌ Save PP failed: ${(e as Error).message}`);
@@ -500,7 +671,7 @@ async function handleSavePP(
   }
 }
 
-// ── Feature: .vv ──────────────────────────────────────────────────────
+// ── Feature: .vv — saves cached group view-once to Supabase + DM ─────────
 async function handleVv(
   sock: WASocket,
   msg: WAMessage,
@@ -511,22 +682,60 @@ async function handleVv(
   const ctx = msg.message?.extendedTextMessage?.contextInfo;
   if (!ctx?.quotedMessage) return false;
 
-  const quoted = ctx.quotedMessage as Record<string, unknown>;
-  const extracted = extractViewOnceFromQuoted(quoted);
-  if (!extracted) return false;
+  // Get the quoted message ID
+  const quotedId = (ctx.quotedMessage as any)?.key?.id
+    ?? (ctx.quotedMessage as Record<string, unknown>)["id"] as string
+    ?? "";
+
+  // Try cache first (works for group view-once messages)
+  const cached = quotedId ? voCache.get(quotedId) : undefined;
+
+  let mediaMsg: MediaMsg | null = null;
+  let mediaType: "image" | "video" | null = null;
+  let senderJid = chatJid;
+
+  if (cached) {
+    mediaMsg = cached.mediaMsg;
+    mediaType = cached.mediaType;
+    senderJid = cached.senderJid;
+    voCache.delete(quotedId); // one‑shot
+  } else {
+    // Fallback: extract directly from quoted message (DMs, or any view-once)
+    const quoted = ctx.quotedMessage as Record<string, unknown>;
+    for (const key of ["viewOnceMessage", "viewOnceMessageV2", "viewOnceMessageV2Extension"]) {
+      const w = (quoted[key] as { message?: Record<string, unknown> } | undefined)?.message;
+      if (w) {
+        if (w["imageMessage"]) { mediaMsg = w["imageMessage"] as MediaMsg; mediaType = "image"; break; }
+        if (w["videoMessage"])  { mediaMsg = w["videoMessage"] as MediaMsg; mediaType = "video"; break; }
+      }
+    }
+    if (!mediaMsg) {
+      if (quoted["imageMessage"]) { mediaMsg = quoted["imageMessage"] as MediaMsg; mediaType = "image"; }
+      else if (quoted["videoMessage"]) { mediaMsg = quoted["videoMessage"] as MediaMsg; mediaType = "video"; }
+    }
+  }
+
+  if (!mediaMsg || !mediaType) {
+    addLogFn(`❌ .vv: no view-once media found in quoted message`);
+    return false;
+  }
 
   const ownerJid = getOwnerJid(sock);
   if (!ownerJid) return false;
 
   try {
-    const buffer = await downloadMedia(extracted.mediaMsg, extracted.mediaType);
-    const ext = mimeToExt(extracted.mediaMsg.mimetype);
+    addLogFn(`📥 .vv: downloading ${mediaType}…`);
+    const buffer = await downloadMedia(mediaMsg, mediaType);
+    const ext = mimeToExt(mediaMsg.mimetype);
     const filename = `vv_${Date.now()}.${ext}`;
-    fs.writeFileSync(path.join(MEDIA_DIR, filename), buffer);
+
+    const success = await saveToSupabase(buffer, filename, mediaMsg.mimetype ?? "application/octet-stream");
     addSavedFile(filename);
-    addLogFn(`💾 Saved via .vv: ${filename}`);
-    const caption = `🔓 *View-once ${extracted.mediaType} (.vv)*\nFrom: +${chatJid.split("@")[0]}`;
-    await sendToOwnerDM(sock, ownerJid, buffer, extracted.mediaType, extracted.mediaMsg.mimetype, caption, addLogFn);
+    addLogFn(`💾 Saved via .vv: ${filename}${success ? "" : " (Supabase failed)"}`);
+
+    const fromLabel = senderJid.split("@")[0] ?? "unknown";
+    const caption = `🔓 *View-once ${mediaType}* (.vv)\nFrom: +${fromLabel}`;
+    await sendToOwnerDM(sock, ownerJid, buffer, mediaType, mediaMsg.mimetype, caption, addLogFn);
     return true;
   } catch (e) {
     addLogFn(`❌ .vv failed: ${(e as Error).message}`);
@@ -534,7 +743,7 @@ async function handleVv(
   }
 }
 
-// ── SESSION ──────────────────────────────────────────────────────────────────
+// ── SESSION ─────────────────────────────────────────────────────────────────
 export async function startSession(id: string, label?: string, pairingPhone?: string) {
   let state = sessions.get(id);
   if (!state) {
@@ -549,20 +758,18 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
       _stopRequested: false,
       _retryCount: 0,
       _starting: false,
-      _pairingRequested: false,      // ← ADD THIS
+      _pairingRequested: false,
       savedFiles: [],
       log: [],
     };
     sessions.set(id, state);
   }
-  // Guard: skip duplicate starts
   if (state._starting || state.status === "connected" || state.status === "connecting") {
     addLog(state, `⏭️ Already ${state.status} — skipping duplicate start`);
     return;
   }
   state._starting = true;
 
-  // Clean up any existing socket before starting a fresh one
   if (state._sock) {
     try {
       state._sock.ev.removeAllListeners("messages.upsert");
@@ -604,11 +811,9 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
     state._sock = sock;
     sock.ev.on("creds.update", saveCreds);
 
-
     sock.ev.on("connection.update", async (update) => {
       const { connection, lastDisconnect, qr } = update;
       if (qr) {
-        // If we're doing pairing-code mode, ignore QR entirely
         if (pairingPhone) {
           addLog(state, "⏭️ QR received but in pairing mode — ignoring");
         } else {
@@ -619,8 +824,6 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
           state.status = "qr";
           addLog(state, "QR code ready");
         }
-
-        // Request pairing code once we know the socket is ready
         if (pairingPhone && !state._pairingRequested && !authState.creds.registered) {
           state._pairingRequested = true;
           try {
@@ -646,7 +849,6 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
         const err = lastDisconnect?.error as Boom | undefined;
         const code = err?.output?.statusCode ?? 0;
 
-        // If a pairing code is pending, don't auto-reconnect — it invalidates the code
         if (state.pairingCode && !authState.creds.registered) {
           addLog(state, "⏸️ Socket closed during pairing — NOT reconnecting");
           state.status = "disconnected";
@@ -674,21 +876,14 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
       }
     });
 
-    // ── Auto‑reconnect monitor ──────────────────────────────────────────
-    // ── Auto‑reconnect monitor ──────────────────────────────────────────
+    // ── Auto‑reconnect / presence monitor ─────────────────────────────
     setInterval(async () => {
       try {
         const st = sessions.get(id);
-        if (!st) return;
-
-        // Skip if not connected, already starting, or waiting for pairing
-        if (st.status !== "connected") return;
-        if (st._starting) return;
+        if (!st || st.status !== "connected" || st._starting) return;
         if (st.pairingCode) return;
-
         const s = st._sock;
         if (!s) return;
-
         if (!s.user) {
           addLog(st, "⚠️ Socket user missing – restarting session");
           st._sock = null;
@@ -696,13 +891,11 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
           await startSession(id);
           return;
         }
-
         await s.sendPresenceUpdate("available");
       } catch (err) {
         const st = sessions.get(id);
         if (!st || st._starting) return;
-        if (st.pairingCode) return;   // don't restart while pairing pending
-
+        if (st.pairingCode) return;
         addLog(st, `⚠️ Health check failed: ${(err as Error).message} – restarting`);
         st._sock = null;
         st.status = "disconnected";
@@ -711,8 +904,6 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
     }, 60_000);
 
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
-      console.log(`🔥 [${id}] MESSAGES.UPSERT type=${type}, count=${messages.length}`);
-
       for (const msg of messages) {
         if (!msg.message) continue;
 
@@ -720,28 +911,27 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
         const isStatus = chatJid === "status@broadcast" || chatJid.endsWith("@broadcast");
         const text = getText(msg);
 
-        // ── Reaction trigger ──────────────────────────────────────────────
+        // ── Reaction trigger ────────────────────────────────────────────
         if (msg.message?.reactionMessage) {
-          await handleReaction(sock, msg, (f) => {
-            state.savedFiles.unshift(f);
-            if (state.savedFiles.length > 30) state.savedFiles.pop();
-          }, (m) => addLog(state, m));
+          await handleReaction(sock, msg,
+            (f) => { state.savedFiles.unshift(f); if (state.savedFiles.length > 30) state.savedFiles.pop(); },
+            (m) => addLog(state, m));
+          continue;
         }
 
-        // ── Status handling ──────────────────────────────────────────────
+        // ── Status: auto‑like with random emoji ─────────────────────────
         if (isStatus) {
           await handleStatusReaction(sock, msg);
           continue;
         }
 
-        // ── Auto‑capture view‑once ──────────────────────────────────────
-        await handleViewOnce(sock, msg, chatJid, (f) => {
-          state.savedFiles.unshift(f);
-          if (state.savedFiles.length > 30) state.savedFiles.pop();
-        }, (m) => addLog(state, m));
+        // ── View‑once: auto‑save DMs, cache groups ─────────────────────
+        await handleViewOnce(sock, msg, chatJid,
+          (f) => { state.savedFiles.unshift(f); if (state.savedFiles.length > 30) state.savedFiles.pop(); },
+          (m) => addLog(state, m));
 
-        // ── Auto‑presence ───────────────────────────────────────────────
-        if (text) {
+        // ── Auto‑presence / typing ─────────────────────────────────────
+        if (text && !isFromMe(msg, sock)) {
           sock.readMessages([msg.key]).catch(() => { });
           const lowerPresence = text.trim().toLowerCase();
           if (lowerPresence.startsWith("sticker") || lowerPresence === ".sticker") {
@@ -751,73 +941,234 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
           }
         }
 
-        // ── If no text, skip commands ──────────────────────────────────
+        // ── If no text, skip commands ─────────────────────────────────
         if (!text) continue;
 
-        console.log(`📩 Received: "${text}" from ${chatJid}`);
-
-        // ── Custom commands ──────────────────────────────────────────────
         const lower = text.trim().toLowerCase();
+
+        // ── Custom commands ───────────────────────────────────────────
         if (customCommands[lower]) {
           await sock.sendMessage(chatJid, { text: customCommands[lower] });
-          console.log(`📝 Custom command: "${lower}" → "${customCommands[lower]}"`);
           continue;
         }
 
-        // ── Commands (with or without .) ──────────────────────────────
         const cmd = lower.startsWith(".") ? lower.slice(1) : lower;
+        const savedFileCb = (f: string) => {
+          state.savedFiles.unshift(f);
+          if (state.savedFiles.length > 30) state.savedFiles.pop();
+        };
+        const logCb = (m: string) => addLog(state, m);
 
+        // ── .vv / vv — delete from chat first, then save ─────────────
+        if (cmd === "vv") {
+          try { await sock.sendMessage(chatJid, { delete: msg.key }); } catch { }
+          const ok = await handleVv(sock, msg, chatJid, savedFileCb, logCb);
+          if (ok) continue;
+        }
+
+        // ── .save — silent: delete from chat, save to DM only ─────────
+        if (cmd === "save") {
+          try { await sock.sendMessage(chatJid, { delete: msg.key }); } catch { }
+          const ok = await handleSaveStatus(sock, msg, chatJid, savedFileCb, logCb);
+          if (ok) continue;
+        }
+
+        // ── Other commands ────────────────────────────────────────────
         if (cmd === "ping") {
           await sock.sendMessage(chatJid, { text: "🏓 Pong!" });
-          console.log(`✅ Pong sent`);
+          continue;
+        }
+
+        // ── Reply-mode gate ───────────────────────────────────────────
+        // When replyMode === "only", only the admin (configured in settings) can trigger commands.
+        // "menu", "help", "ping" are exempt (always allowed).
+        const isAdminUser = isAdmin(msg, sock);
+        const replyModeOnly = currentSettings?.features?.replyMode === "only";
+        const allowedForAll = ["menu", "help", "ping"];
+        if (replyModeOnly && !isAdminUser && !allowedForAll.includes(cmd)) {
+          // Silently ignore — do not reply to avoid spam
           continue;
         }
 
         if (cmd === "menu" || cmd === "help") {
+          const publicUrl = process.env.PUBLIC_URL || 'http://localhost:8080';
           await sock.sendMessage(chatJid, {
-            text: `🤖 *Bot Commands*\n\n` +
-              `*Basics*\n` +
-              `• \`ping\` — check if alive\n` +
-              `• \`menu\` — show this menu\n\n` +
-              `*Media*\n` +
-              `• \`vv\` — reply to a view-once to save it\n` +
-              `• \`sticker\` — reply to image/video → sticker\n` +
-              `• \`save\` — reply to a status to save it\n` +
-              `• \`savepp\` — save sender's profile picture\n\n` +
-              `*Dashboard*\n` +
-              `• Manage: ${process.env.PUBLIC_URL || 'http://localhost:8080'}/admin\n` +
-              `• Link your number: ${process.env.PUBLIC_URL || 'http://localhost:8080'}/user`,
+            text: `🤖 *NovaBot Commands*\n\n` +
+              `*📋 Basics*\n` +
+              `• \`ping\` — Check if alive\n` +
+              `• \`menu\` — Show this menu\n` +
+              `• \`help\` — Same as menu\n\n` +
+              `*📸 Media*\n` +
+              `• \`vv\` — Reply to a view-once to save it\n` +
+              `• \`sticker\` — Reply to image/video → sticker\n` +
+              `• \`save\` — Reply to a status to save it (silent)\n` +
+              `• \`savepp\` — Save sender's profile picture\n\n` +
+              `*⚙️ Features (owner only)*\n` +
+              `• \`autoreact on/off\` — Auto-like statuses\n` +
+              `• \`autotyping on/off\` — Show typing indicator\n` +
+              `• \`antidelete on/off\` — Save deleted messages\n` +
+              `• \`replymode only/all\` — Who can use commands\n\n` +
+              `*🔗 Dashboard*\n` +
+              `• Admin panel: ${publicUrl}/admin\n` +
+              `• Link your number: ${publicUrl}/user\n` +
+              `• View files: ${publicUrl}/my-files`,
           });
           continue;
         }
 
-        if (cmd === "save") {
-          const ok = await handleSaveStatus(sock, msg, chatJid,
-            (f) => { state.savedFiles.unshift(f); if (state.savedFiles.length > 30) state.savedFiles.pop(); },
-            (m) => addLog(state, m)
-          );
-          if (ok) continue;
-        }
-
         if (cmd === "sticker") {
-          const ok = await handleSticker(sock, msg, chatJid, (m) => addLog(state, m));
+          const ok = await handleSticker(sock, msg, chatJid, logCb);
           if (ok) continue;
         }
 
         if (cmd === "savepp") {
-          const ok = await handleSavePP(sock, msg, chatJid,
-            (f) => { state.savedFiles.unshift(f); if (state.savedFiles.length > 30) state.savedFiles.pop(); },
-            (m) => addLog(state, m)
-          );
+          const ok = await handleSavePP(sock, msg, chatJid, savedFileCb, logCb);
           if (ok) continue;
         }
 
-        if (cmd === "vv") {
-          const ok = await handleVv(sock, msg, chatJid,
-            (f) => { state.savedFiles.unshift(f); if (state.savedFiles.length > 30) state.savedFiles.pop(); },
-            (m) => addLog(state, m)
-          );
-          if (ok) continue;
+        // ── Feature toggles (admin only) ─────────────────────────────
+        if (cmd.startsWith("autoreact")) {
+          if (!isAdminUser) continue;
+          const arg = cmd.split(/\s+/)[1]?.toLowerCase();
+          if (arg === "on") {
+            currentSettings.features.autoReact = true;
+            applySettings(currentSettings);
+            await sock.sendMessage(chatJid, { text: "✅ Auto-react enabled" });
+          } else if (arg === "off") {
+            currentSettings.features.autoReact = false;
+            applySettings(currentSettings);
+            await sock.sendMessage(chatJid, { text: "🚫 Auto-react disabled" });
+          } else {
+            await sock.sendMessage(chatJid, { text: `ℹ️ Auto-react is ${currentSettings.features.autoReact ? "on" : "off"}\nUsage: \`autoreact on\` or \`autoreact off\`` });
+          }
+          continue;
+        }
+
+        if (cmd.startsWith("autotyping")) {
+          if (!isAdminUser) continue;
+          const arg = cmd.split(/\s+/)[1]?.toLowerCase();
+          if (arg === "on") {
+            currentSettings.features.autoPresence = true;
+            applySettings(currentSettings);
+            await sock.sendMessage(chatJid, { text: "✅ Auto-typing enabled" });
+          } else if (arg === "off") {
+            currentSettings.features.autoPresence = false;
+            applySettings(currentSettings);
+            await sock.sendMessage(chatJid, { text: "🚫 Auto-typing disabled" });
+          } else {
+            await sock.sendMessage(chatJid, { text: `ℹ️ Auto-typing is ${currentSettings.features.autoPresence ? "on" : "off"}\nUsage: \`autotyping on\` or \`autotyping off\`` });
+          }
+          continue;
+        }
+
+        if (cmd.startsWith("replymode")) {
+          if (!isAdminUser) continue;
+          const arg = cmd.split(/\s+/)[1]?.toLowerCase();
+          if (arg === "only" || arg === "all") {
+            currentSettings.features.replyMode = arg;
+            applySettings(currentSettings);
+            await sock.sendMessage(chatJid, { text: `✅ Reply mode set to: *${arg}*` });
+          } else {
+            await sock.sendMessage(chatJid, { text: `ℹ️ Current reply mode: *${currentSettings.features.replyMode}*\nUsage: \`replymode only\` (admin only) or \`replymode all\` (everyone)` });
+          }
+          continue;
+        }
+
+        if (cmd.startsWith("antidelete")) {
+          if (!isAdminUser) continue;
+          const arg = cmd.split(/\s+/)[1]?.toLowerCase();
+          if (arg === "on") {
+            currentSettings.features.antiDelete = true;
+            applySettings(currentSettings);
+            await sock.sendMessage(chatJid, { text: "✅ Anti-delete enabled" });
+          } else if (arg === "off") {
+            currentSettings.features.antiDelete = false;
+            applySettings(currentSettings);
+            await sock.sendMessage(chatJid, { text: "🚫 Anti-delete disabled" });
+          } else {
+            await sock.sendMessage(chatJid, { text: `ℹ️ Anti-delete is ${currentSettings.features.antiDelete ? "on" : "off"}\nUsage: \`antidelete on\` or \`antidelete off\`` });
+          }
+          continue;
+        }
+
+        if (cmd.startsWith("ai")) {
+          if (!isAdminUser) continue;
+          const arg = cmd.split(/\s+/)[1]?.toLowerCase();
+          if (arg === "on") {
+            currentSettings.features.aiChat = true;
+            applySettings(currentSettings);
+            await sock.sendMessage(chatJid, { text: "✅ AI chat enabled" });
+          } else if (arg === "off") {
+            currentSettings.features.aiChat = false;
+            applySettings(currentSettings);
+            await sock.sendMessage(chatJid, { text: "🚫 AI chat disabled" });
+          } else {
+            await sock.sendMessage(chatJid, { text: `ℹ️ AI chat is ${currentSettings.features.aiChat ? "on" : "off"}\nUsage: \`ai on\` or \`ai off\`` });
+          }
+          continue;
+        }
+
+        if (cmd.startsWith("welcome") || cmd.startsWith("goodbye")) {
+          if (!isAdminUser) continue;
+          const arg = cmd.split(/\s+/)[1]?.toLowerCase();
+          if (arg === "on") {
+            currentSettings.features.welcomeGoodbye = true;
+            applySettings(currentSettings);
+            await sock.sendMessage(chatJid, { text: "✅ Welcome/Goodbye messages enabled" });
+          } else if (arg === "off") {
+            currentSettings.features.welcomeGoodbye = false;
+            applySettings(currentSettings);
+            await sock.sendMessage(chatJid, { text: "🚫 Welcome/Goodbye messages disabled" });
+          } else {
+            await sock.sendMessage(chatJid, { text: `ℹ️ Welcome/Goodbye is ${currentSettings.features.welcomeGoodbye ? "on" : "off"}\nUsage: \`welcome on/off\` or \`goodbye on/off\`` });
+          }
+          continue;
+        }
+
+        if (cmd === "status") {
+          if (!isAdminUser) continue;
+          const features = currentSettings.features;
+          await sock.sendMessage(chatJid, {
+            text: `📊 *Bot Status*\n\n` +
+              `*Auto-react:* ${features.autoReact ? "✅" : "🚫"}\n` +
+              `*Auto-typing:* ${features.autoPresence ? "✅" : "🚫"}\n` +
+              `*Anti-delete:* ${features.antiDelete ? "✅" : "🚫"}\n` +
+              `*AI chat:* ${features.aiChat ? "✅" : "🚫"}\n` +
+              `*Reply mode:* ${features.replyMode}\n` +
+              `*Welcome/Goodbye:* ${features.welcomeGoodbye ? "✅" : "🚫"}\n` +
+              `*View-once save:* ${features.viewOnce ? "✅" : "🚫"}\n` +
+              `*Status save:* ${features.saveStatus ? "✅" : "🚫"}\n` +
+              `*Profile save:* ${features.saveProfile ? "✅" : "🚫"}\n` +
+              `*Custom commands:* ${features.customCommands ? "✅" : "🚫"}`
+          });
+          continue;
+        }
+
+        // ── AI Chat / Rules ────────────────────────────────────────────────
+        if (currentSettings.features.aiChat) {
+          const senderJid = msg.key.participant ?? msg.key.remoteJid ?? "";
+          if (!isAdminUser && currentSettings.features.replyMode === "only") continue;
+
+          const messageText = text.trim();
+          if (!messageText) continue;
+
+          // Check AI rules first
+          const rules = currentSettings.aiRules || [];
+          const matchedRule = rules.find(r => r.enabled && matchRule(r, messageText));
+          if (matchedRule) {
+            let response = matchedRule.response;
+            // Support variable substitution
+            response = response.replace(/{sender}/g, senderJid.split("@")[0] || "you");
+            await sock.sendMessage(chatJid, { text: response }, { quoted: msg });
+            continue;
+          }
+
+          // Fallback to AI provider
+          const provider = currentSettings.aiProviders?.find(p => p.id === currentSettings.defaultAiProvider) || currentSettings.aiProviders?.[0];
+          if (provider) {
+            await handleAiReply(sock, msg, chatJid, senderJid, provider, logCb);
+            continue;
+          }
         }
       }
     });
@@ -834,7 +1185,6 @@ export async function startSession(id: string, label?: string, pairingPhone?: st
 }
 
 export async function startBot() {
-  // Restore all previously linked sessions
   const list = loadSessionIds();
   if (list.length === 0) {
     console.log(`ℹ️ No saved sessions to restore. Create one via /admin`);
@@ -845,7 +1195,6 @@ export async function startBot() {
   for (const { id, label } of list) {
     try {
       await startSession(id, label);
-      // Small delay between sessions to avoid rate limits
       await new Promise(r => setTimeout(r, 1000));
     } catch (e) {
       console.error(`Failed to restore session ${id}:`, e);

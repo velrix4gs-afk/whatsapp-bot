@@ -100,7 +100,8 @@ async function handleViewOnce(msg: any, chatJid: string) {
     if (m.conversation || m.extendedTextMessage?.text) return;
 
     const inner = m.viewOnceMessage?.message ?? m.viewOnceMessageV2?.message ?? m.viewOnceMessageV2Extension?.message;
-    let media, type;
+    let media: MediaMsg | null = null;
+    let type: "image" | "video" | "audio" = "image";
     if (inner?.imageMessage) { media = inner.imageMessage; type = "image"; }
     else if (inner?.videoMessage) { media = inner.videoMessage; type = "video"; }
     else if (inner?.audioMessage) { media = inner.audioMessage; type = "audio"; }
@@ -114,7 +115,8 @@ async function handleViewOnce(msg: any, chatJid: string) {
     try {
         const buffer = await downloadMedia(media, type);
         const ext = mimeToExt(media.mimetype);
-        const success = await saveToSupabase(buffer, `vo_${Date.now()}.${ext}`, media.mimetype);
+        const mime = media.mimetype ?? "application/octet-stream";
+        const success = await saveToSupabase(buffer, `vo_${Date.now()}.${ext}`, mime);
 
         // 🔑 Auto-save DM (No URL, just image and web link)
         const webLink = `${process.env.PUBLIC_URL}/my-files`;
@@ -122,7 +124,7 @@ async function handleViewOnce(msg: any, chatJid: string) {
 
         if (type === "image") await sock.sendMessage(ownerJid, { image: buffer, caption });
         else if (type === "video") await sock.sendMessage(ownerJid, { video: buffer, caption });
-        else await sock.sendMessage(ownerJid, { audio: buffer, mimetype: media.mimetype, ptt: true });
+        else await sock.sendMessage(ownerJid, { audio: buffer, mimetype: mime, ptt: true });
     } catch (e) { log(`VO failed: ${e}`); }
 }
 
@@ -136,15 +138,15 @@ async function handleReaction(msg: any) {
 
     try {
         const buffer = await downloadMedia(cached.mediaMsg, cached.mediaType);
-        const ext = mimeToExt(cached.mediaMsg.mimetype);
-        await saveToSupabase(buffer, `vo_react_${Date.now()}.${ext}`, cached.mediaMsg.mimetype);
+        const ext = mimeToExt(cached.mediaMsg.mimetype ?? null);
+        await saveToSupabase(buffer, `vo_react_${Date.now()}.${ext}`, cached.mediaMsg.mimetype ?? "application/octet-stream");
 
         const webLink = `${process.env.PUBLIC_URL}/my-files`;
         const caption = `🔓 *View-once ${cached.mediaType}* (via reaction)\nFrom: +${cached.senderJid.split("@")[0]}\n\n📁 View: ${webLink}`;
 
         if (cached.mediaType === "image") await sock.sendMessage(getOwnerJid()!, { image: buffer, caption });
         else if (cached.mediaType === "video") await sock.sendMessage(getOwnerJid()!, { video: buffer, caption });
-        else await sock.sendMessage(getOwnerJid()!, { audio: buffer, mimetype: cached.mediaMsg.mimetype, ptt: true });
+        else await sock.sendMessage(getOwnerJid()!, { audio: buffer, mimetype: cached.mediaMsg.mimetype ?? "audio/ogg; codecs=opus", ptt: true });
     } catch (e) { log(`Reaction failed: ${e}`); }
 }
 
@@ -242,6 +244,8 @@ async function run() {
         markOnlineOnConnect: true, // 👈 ADD THIS LINE
     });
 
+    ipc({ type: "started" });
+
     sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on("connection.update", async (update: any) => {
@@ -250,14 +254,30 @@ async function run() {
         if (qr) {
             if (PAIRING_PHONE && !pairingRequested && !state.creds.registered) {
                 pairingRequested = true;
-                try {
-                    const cleanPhone = PAIRING_PHONE.replace(/\D/g, "");
-                    const code = await sock.requestPairingCode(cleanPhone);
-                    ipc({ type: "pairing", code });
-                    log(`✅ Pairing code: ${code}`);
-                } catch (e: any) {
-                    ipc({ type: "pairing_error", error: e.message || "Unknown error" });
-                    pairingRequested = false;
+                const cleanPhone = PAIRING_PHONE.replace(/\D/g, "");
+                
+                // Retry up to 3 times with exponential backoff
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        log(`📞 Requesting pairing code (attempt ${attempt}/3)...`);
+                        const code = await sock.requestPairingCode(cleanPhone);
+                        ipc({ type: "pairing", code });
+                        log(`✅ Pairing code: ${code}`);
+                        return; // Success - exit the QR handler
+                    } catch (e: any) {
+                        const errMsg = e.message || "Unknown error";
+                        log(`⚠️ Pairing attempt ${attempt} failed: ${errMsg}`);
+                        
+                        if (attempt < 3) {
+                            const delay = attempt * 5000; // 5s, 10s
+                            log(`🔄 Retrying in ${delay/1000}s...`);
+                            await new Promise(r => setTimeout(r, delay));
+                        } else {
+                            // All attempts failed
+                            ipc({ type: "pairing_error", error: `Failed after 3 attempts: ${errMsg}` });
+                            pairingRequested = false;
+                        }
+                    }
                 }
             }
         }
@@ -272,7 +292,12 @@ async function run() {
             if (stopping) return;
             const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
             if (pairingRequested && !state.creds.registered) return;
-            if (code === DisconnectReason.loggedOut) { ipc({ type: "logged_out" }); return; }
+            if (code === DisconnectReason.loggedOut) {
+                ipc({ type: "logged_out" });
+                // Exit process so manager can restart with clean auth
+                process.exit(1);
+            }
+            ipc({ type: "disconnected" });
             setTimeout(() => run().catch(() => { }), 3000);
         }
     });

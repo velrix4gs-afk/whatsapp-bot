@@ -133,6 +133,10 @@ router.post("/settings", requireSession, (req: Request, res: Response) => {
     goodbyeMessage: body.goodbyeMessage ?? current.goodbyeMessage,
     antiLinkWhitelist: Array.isArray(body.antiLinkWhitelist) ? body.antiLinkWhitelist : current.antiLinkWhitelist,
     aiSystemPrompt: body.aiSystemPrompt ?? current.aiSystemPrompt,
+    adminNumber: typeof body.adminNumber === "string" ? body.adminNumber.replace(/\D/g, "") : current.adminNumber,
+    aiProviders: Array.isArray(body.aiProviders) ? body.aiProviders : current.aiProviders,
+    aiRules: Array.isArray(body.aiRules) ? body.aiRules : current.aiRules,
+    defaultAiProvider: typeof body.defaultAiProvider === "string" ? body.defaultAiProvider : current.defaultAiProvider,
   };
   applySettings(updated);
   res.json({ ok: true, settings: updated });

@@ -158,10 +158,12 @@ router.post("/auth/settings/update", async (req: Request, res: Response) => {
             return;
         }
 
-        const allowed = ["view_once", "auto_react", "auto_presence", "anti_delete", "ai_chat"];
-        const update: Record<string, boolean> = {};
+        const allowed = ["view_once", "auto_react", "auto_presence", "anti_delete", "ai_chat", "reply_mode"];
+        const update: Record<string, unknown> = {};
         for (const key of allowed) {
-            if (typeof settings?.[key] === "boolean") update[key] = settings[key];
+            if (typeof settings?.[key] === "boolean" || (typeof settings?.[key] === "string" && (settings[key] === "only" || settings[key] === "all"))) {
+                update[key] = settings[key];
+            }
         }
 
         if (Object.keys(update).length === 0) {

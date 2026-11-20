@@ -1,432 +1,749 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Files – WhatsApp Bot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
+        :root {
+            --bg: #0a0c10;
+            --bg-elevated: #12151b;
+            --card: #161a22;
+            --card-hover: #1a1f2b;
+            --border: #242a38;
+            --border-hover: #00d47e;
+            --text: #e8eaed;
+            --text-muted: #7a8295;
+            --text-dim: #4a5265;
+            --accent: #00d47e;
+            --accent-dim: #00d47e22;
+            --accent-hover: #00e88a;
+            --danger: #ff4d6a;
+            --danger-dim: #ff4d6a22;
+            --warning: #ffb800;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --shadow: 0 4px 24px rgba(0,0,0,0.4);
+            --shadow-lg: 0 12px 48px rgba(0,0,0,0.5);
+            --transition: 160ms ease;
         }
 
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg: #f5f7fa;
+                --bg-elevated: #ffffff;
+                --card: #ffffff;
+                --card-hover: #f0f4f8;
+                --border: #e0e6ed;
+                --border-hover: #00b86b;
+                --text: #1a1f2e;
+                --text-muted: #6b7280;
+                --text-dim: #9ca3af;
+                --accent: #00b86b;
+                --accent-dim: #00b86b1a;
+                --accent-hover: #00a35f;
+                --shadow: 0 4px 24px rgba(15,23,42,0.08);
+                --shadow-lg: 0 12px 48px rgba(15,23,42,0.12);
+            }
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        html { font-size: 15px; }
+        
         body {
-            background: #0f1117;
-            color: #e6e6e6;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
             min-height: 100vh;
-            padding: 20px;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
         }
 
-        .container {
-            max-width: 1100px;
-            margin: 0 auto;
-        }
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
 
-        /* Login */
-        .login-box {
-            background: #1a1d26;
-            border: 1px solid #252933;
-            border-radius: 16px;
-            padding: 40px 30px;
-            max-width: 420px;
-            margin: 80px auto;
-        }
-
-        .login-box h1 {
-            color: #00ff88;
-            font-size: 22px;
-            margin-bottom: 6px;
-        }
-
-        .login-box .sub {
-            color: #888;
-            font-size: 14px;
-            margin-bottom: 24px;
-        }
-
-        label {
-            display: block;
-            font-size: 13px;
-            color: #888;
-            margin-bottom: 6px;
-            margin-top: 16px;
-        }
-
-        input {
-            width: 100%;
-            background: #0f1117;
-            border: 1px solid #252933;
-            color: #e6e6e6;
-            padding: 14px;
-            border-radius: 10px;
-            font-size: 15px;
-            outline: none;
-        }
-
-        input:focus {
-            border-color: #00ff88;
-        }
-
-        .btn {
-            width: 100%;
-            background: #00ff88;
-            color: #0f1117;
-            border: none;
-            padding: 14px;
-            border-radius: 10px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            margin-top: 24px;
-        }
-
-        .btn:hover {
-            background: #00cc6a;
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .error {
-            background: #ff475722;
-            border: 1px solid #ff4757;
-            color: #ff8888;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 13px;
-            margin-top: 16px;
-            display: none;
-        }
+        /* Layout */
+        .app { min-height: 100vh; display: flex; flex-direction: column; }
+        .main { flex: 1; padding: clamp(16px, 3vw, 32px); }
+        .container { max-width: 1300px; margin: 0 auto; width: 100%; }
 
         /* Header */
-        header {
+        .header {
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            margin-bottom: 24px;
+            justify-content: space-between;
+            gap: 16px;
             flex-wrap: wrap;
-            gap: 12px;
+            margin-bottom: clamp(20px, 4vw, 32px);
+            padding-bottom: clamp(16px, 3vw, 24px);
+            border-bottom: 1px solid var(--border);
         }
 
-        h1 {
-            color: #00ff88;
-            font-size: 22px;
-        }
+        .header-left { display: flex; flex-direction: column; gap: 4px; }
+        .title { font-size: clamp(1.5rem, 4vw, 2rem); font-weight: 700; letter-spacing: -0.02em; background: linear-gradient(135deg, var(--text) 0%, var(--accent) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .subtitle { font-size: clamp(0.85rem, 2vw, 1rem); color: var(--text-muted); font-weight: 400; display: flex; align-items: center; gap: 8px; }
+        .phone-badge { background: var(--accent-dim); color: var(--accent); padding: 2px 10px; border-radius: 100px; font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; font-weight: 500; }
 
-        .phone-display {
-            color: #888;
-            font-size: 13px;
-            margin-top: 4px;
-        }
+        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
-        .btn-sm {
-            background: transparent;
-            color: #e6e6e6;
-            border: 1px solid #333;
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-size: 13px;
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 20px;
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 0.875rem;
+            font-weight: 600;
             cursor: pointer;
+            border: none;
+            transition: all var(--transition);
+            text-decoration: none;
+            white-space: nowrap;
         }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: var(--accent); color: var(--bg); }
+        .btn-primary:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 4px 16px var(--accent-dim); }
+        .btn-secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+        .btn-secondary:hover:not(:disabled) { background: var(--card-hover); border-color: var(--text-dim); }
+        .btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid transparent; }
+        .btn-ghost:hover:not(:disabled) { background: var(--card); color: var(--text); }
+        .btn-danger { background: var(--danger-dim); color: var(--danger); border: 1px solid transparent; }
+        .btn-danger:hover:not(:disabled) { background: var(--danger); color: var(--bg); }
+        .btn-sm { padding: 6px 14px; font-size: 0.8rem; }
+        .btn-icon { padding: 10px; border-radius: var(--radius-sm); }
 
-        .btn-sm:hover {
-            background: #1a1d26;
-            border-color: #555;
+        /* Login View */
+        .login-view {
+            max-width: 440px;
+            margin: clamp(60px, 15vh, 120px) auto;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: clamp(32px, 6vw, 48px);
+            box-shadow: var(--shadow-lg);
+            animation: slideUp 0.4s ease-out;
         }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        .login-header { text-align: center; margin-bottom: clamp(24px, 4vw, 32px); }
+        .login-icon { width: 56px; height: 56px; border-radius: var(--radius-md); background: var(--accent-dim); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 16px; color: var(--accent); font-size: 1.5rem; }
+        .login-title { font-size: clamp(1.25rem, 3vw, 1.5rem); font-weight: 700; margin-bottom: 6px; }
+        .login-subtitle { color: var(--text-muted); font-size: 0.9rem; }
+
+        .form-group { margin-bottom: 18px; }
+        .form-label { display: block; font-size: 0.8rem; font-weight: 500; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .form-input {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 14px 16px;
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 1rem;
+            transition: all var(--transition);
+        }
+        .form-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+        .form-input::placeholder { color: var(--text-dim); }
+        .form-input.error { border-color: var(--danger); }
+
+        .login-btn { width: 100%; margin-top: 8px; padding: 14px; font-size: 1rem; }
+        .login-error { background: var(--danger-dim); border: 1px solid var(--danger); color: var(--danger); padding: 12px 16px; border-radius: var(--radius-md); font-size: 0.85rem; display: none; margin-top: 16px; animation: shake 0.3s ease; }
+        @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
 
         /* Grid */
         .grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 16px;
-            margin-top: 20px;
+            gap: clamp(12px, 2vw, 16px);
         }
 
+        @media (max-width: 640px) {
+            .grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+        }
+
+        /* File Card */
         .file-card {
-            background: #1a1d26;
-            border: 1px solid #252933;
-            border-radius: 12px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
             overflow: hidden;
-            transition: 0.2s;
+            transition: all var(--transition);
+            display: flex;
+            flex-direction: column;
+            position: relative;
         }
-
         .file-card:hover {
-            border-color: #00ff88;
+            border-color: var(--border-hover);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow);
         }
+        .file-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
 
-        .file-card .preview {
-            background: #0a0c10;
-            height: 180px;
+        .file-preview {
+            aspect-ratio: 1;
+            background: var(--bg);
+            position: relative;
+            overflow: hidden;
             display: flex;
             align-items: center;
             justify-content: center;
-            overflow: hidden;
         }
-
-        .file-card .preview img,
-        .file-card .preview video {
-            max-width: 100%;
-            max-height: 100%;
+        .file-preview img,
+        .file-preview video {
+            width: 100%;
+            height: 100%;
             object-fit: cover;
+            transition: transform 0.3s ease;
+        }
+        .file-card:hover .file-preview img,
+        .file-card:hover .file-preview video { transform: scale(1.05); }
+
+        .file-preview .placeholder {
+            font-size: 2.5rem;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
         }
 
-        .file-card .preview .icon {
-            font-size: 48px;
-            color: #444;
+        .file-type-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(8px);
+            color: var(--text);
+            padding: 4px 8px;
+            border-radius: var(--radius-sm);
+            font-size: 0.65rem;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            z-index: 2;
         }
 
-        .file-card .info {
-            padding: 12px;
-        }
-
-        .file-card .name {
-            font-size: 12px;
-            word-break: break-all;
-            color: #ccc;
-            margin-bottom: 8px;
-            line-height: 1.4;
-        }
-
-        .file-card .meta {
-            font-size: 11px;
-            color: #666;
-            margin-bottom: 10px;
-        }
-
-        .file-card .actions {
+        .file-actions-overlay {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            right: 8px;
             display: flex;
             gap: 6px;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all var(--transition);
+            z-index: 2;
         }
-
-        .file-card .actions a {
+        .file-card:hover .file-actions-overlay { opacity: 1; transform: translateY(0); }
+        .file-action-btn {
             flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 12px;
+            background: var(--bg-elevated);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: var(--radius-sm);
+            font-size: 0.75rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition);
+        }
+        .file-action-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+        .file-action-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+        .file-action-btn.primary:hover { background: var(--accent-hover); }
+        .file-action-btn.danger { color: var(--danger); border-color: var(--danger); }
+        .file-action-btn.danger:hover { background: var(--danger); color: var(--bg); }
+
+        .file-info { padding: 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; }
+        .file-name {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .file-meta {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .file-meta span { display: flex; align-items: center; gap: 4px; }
+
+        /* Empty State */
+        .empty-state {
+            grid-column: 1 / -1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: clamp(60px, 15vw, 100px) 20px;
             text-align: center;
-            background: #00ff88;
-            color: #0f1117;
-            padding: 6px;
-            border-radius: 6px;
-            font-size: 11px;
-            font-weight: 600;
-            text-decoration: none;
+            color: var(--text-muted);
         }
+        .empty-icon { font-size: 4rem; margin-bottom: 16px; opacity: 0.5; }
+        .empty-title { font-size: 1.25rem; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+        .empty-desc { max-width: 320px; font-size: 0.9rem; line-height: 1.6; }
 
-        .file-card .actions a:hover {
-            background: #00cc6a;
-        }
-
-        .file-card .actions a.secondary {
-            background: transparent;
-            color: #aaa;
-            border: 1px solid #333;
-        }
-
-        .file-card .actions a.secondary:hover {
-            color: #fff;
-            border-color: #666;
-        }
-
-        .empty {
-            text-align: center;
+        /* Loading */
+        .loading-state {
+            grid-column: 1 / -1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             padding: 60px 20px;
-            color: #555;
-            grid-column: 1/-1;
+            color: var(--text-muted);
+            gap: 16px;
+        }
+        .spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s ease;
+            padding: 20px;
+        }
+        .modal-overlay.open { opacity: 1; visibility: visible; }
+        .modal {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            max-width: 90vw;
+            max-height: 90vh;
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transform: scale(0.95);
+            transition: transform 0.2s ease;
+        }
+        .modal-overlay.open .modal { transform: scale(1); }
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+        }
+        .modal-title { font-size: 0.95rem; font-weight: 600; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .modal-close { background: transparent; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; padding: 4px; line-height: 1; transition: color var(--transition); width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); }
+        .modal-close:hover { color: var(--text); background: var(--card); }
+        .modal-body { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; min-height: 0; }
+        .modal-body img,
+        .modal-body video { max-width: 100%; max-height: 70vh; object-fit: contain; }
+        .modal-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+
+        /* Toast */
+        .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; }
+        .toast { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 20px; display: flex; align-items: center; gap: 12px; box-shadow: var(--shadow-lg); animation: slideIn 0.3s ease; max-width: 360px; }
+        .toast.success { border-left: 3px solid var(--accent); }
+        .toast.error { border-left: 3px solid var(--danger); }
+        .toast.info { border-left: 3px solid var(--warning); }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(100px); } to { opacity: 1; transform: translateX(0); } }
+        .toast-icon { font-size: 1.1rem; flex-shrink: 0; }
+        .toast.success .toast-icon { color: var(--accent); }
+        .toast.error .toast-icon { color: var(--danger); }
+        .toast.info .toast-icon { color: var(--warning); }
+        .toast-message { flex: 1; font-size: 0.875rem; line-height: 1.4; }
+        .toast-close { background: transparent; border: none; color: var(--text-dim); cursor: pointer; padding: 4px; font-size: 1.1rem; line-height: 1; }
+
+        /* Reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
         }
 
-        .empty h2 {
-            font-size: 18px;
-            margin-bottom: 8px;
-            color: #666;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 60px;
-            color: #666;
-            grid-column: 1/-1;
-        }
+        /* Focus visible */
+        :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     </style>
 </head>
-
 <body>
-
-    <div class="container">
-
-        <!-- Login view -->
-        <div class="login-box" id="login-view">
-            <h1>📁 My Files</h1>
-            <p class="sub">Login with your WhatsApp number and PIN</p>
-
-            <label>Phone number (with country code)</label>
-            <input type="tel" id="phone" placeholder="e.g., 2348103077073" />
-
-            <label>4-digit PIN</label>
-            <input type="password" id="pin" maxlength="4" inputmode="numeric" placeholder="••••" />
-
-            <button class="btn" id="login-btn" onclick="login()">Login</button>
-            <div class="error" id="login-error"></div>
-        </div>
-
-        <!-- Files view -->
-        <div id="files-view" style="display:none;">
-            <header>
-                <div>
-                    <h1>📁 My Saved Files</h1>
-                    <div class="phone-display" id="phone-display"></div>
+    <div class="app">
+        <main class="main">
+            <div class="container">
+                <!-- Login View -->
+                <div class="login-view" id="login-view" role="main">
+                    <div class="login-header">
+                        <div class="login-icon" aria-hidden="true">📁</div>
+                        <h1 class="login-title">My Files</h1>
+                        <p class="login-subtitle">Access your saved WhatsApp media</p>
+                    </div>
+                    <form id="login-form" novalidate>
+                        <div class="form-group">
+                            <label class="form-label" for="phone">Phone Number</label>
+                            <input type="tel" id="phone" class="form-input" placeholder="e.g., 2348103077073" inputmode="tel" autocomplete="tel" required aria-describedby="phone-desc">
+                            <span id="phone-desc" style="display:none;font-size:0.75rem;color:var(--text-dim);">With country code, no + or spaces</span>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="pin">4-Digit PIN</label>
+                            <input type="password" id="pin" class="form-input" maxlength="4" inputmode="numeric" placeholder="••••" autocomplete="one-time-code" required aria-describedby="pin-desc">
+                            <span id="pin-desc" style="display:none;font-size:0.75rem;color:var(--text-dim);">Set via Telegram /register command</span>
+                        </div>
+                        <button type="submit" class="btn btn-primary login-btn" id="login-btn">
+                            <span class="btn-text">Sign In</span>
+                            <span class="btn-loading" style="display:none;" aria-hidden="true">
+                                <svg class="spinner" width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" stroke-dasharray="30 100" stroke-linecap="round"/></svg>
+                            </span>
+                        </button>
+                        <div class="login-error" id="login-error" role="alert" aria-live="polite"></div>
+                    </form>
                 </div>
-                <div>
-                    <button class="btn-sm" onclick="refresh()">🔄 Refresh</button>
-                    <button class="btn-sm" onclick="logout()">Logout</button>
+
+                <!-- Files View -->
+                <div id="files-view" style="display:none;" role="main" aria-label="Saved files">
+                    <header class="header">
+                        <div class="header-left">
+                            <h1 class="title">My Files</h1>
+                            <div class="subtitle">
+                                <span class="phone-badge" id="phone-display"></span>
+                                <span id="file-count" style="font-size:0.8rem;color:var(--text-dim);"></span>
+                            </div>
+                        </div>
+                        <div class="header-actions">
+                            <button class="btn btn-secondary btn-sm" id="refresh-btn" aria-label="Refresh files">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                                Refresh
+                            </button>
+                            <button class="btn btn-ghost btn-sm" id="logout-btn" aria-label="Logout">Logout</button>
+                        </div>
+                    </header>
+                    <div class="grid" id="files-grid" role="list" aria-label="Media files"></div>
                 </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Preview Modal -->
+    <div class="modal-overlay" id="preview-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1">
+        <div class="modal">
+            <header class="modal-header">
+                <h2 class="modal-title" id="modal-title"></h2>
+                <button class="modal-close" id="modal-close" aria-label="Close preview">×</button>
             </header>
-
-            <div class="grid" id="files-grid"></div>
+            <div class="modal-body" id="modal-body"></div>
+            <footer class="modal-footer">
+                <a class="btn btn-primary" id="modal-download" href="#" download>Download</a>
+                <a class="btn btn-secondary" id="modal-open" href="#" target="_blank" rel="noopener">Open in New Tab</a>
+                <button class="btn btn-ghost" id="modal-copy" aria-label="Copy link">Copy Link</button>
+            </footer>
         </div>
     </div>
 
-    <script>
-        const API = '/api';
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container" aria-live="polite" aria-atomic="true"></div>
 
+    <script>
+        // ============ CONSTANTS & STATE ============
+        const API = '/api';
+        let currentFiles = [];
+        let currentPhone = '';
+        let currentPin = '';
+
+        // ============ UTILITIES ============
         function fmtSize(bytes) {
-            if (!bytes) return "—";
-            if (bytes < 1024) return bytes + " B";
-            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-            return (bytes / 1024 / 1024).toFixed(2) + " MB";
+            if (!bytes || bytes < 1024) return bytes ? bytes + ' B' : '—';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / 1024 / 1024).toFixed(2) + ' MB';
         }
 
         function fmtDate(iso) {
-            if (!iso) return "—";
+            if (!iso) return '—';
             const d = new Date(iso);
-            return d.toLocaleString();
+            return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
         }
 
-        async function login() {
-            const phone = document.getElementById('phone').value.trim();
-            const pin = document.getElementById('pin').value.trim();
-            const errEl = document.getElementById('login-error');
-            const btn = document.getElementById('login-btn');
+        function getFileIcon(type, ext) {
+            const icons = {
+                image: '🖼️',
+                video: '🎬',
+                audio: '🎵',
+                file: '📄'
+            };
+            return icons[type] || icons.file;
+        }
 
-            errEl.style.display = 'none';
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `<span class="toast-icon" aria-hidden="true">${icons[type]}</span><span class="toast-message">${message}</span><button class="toast-close" aria-label="Dismiss">&times;</button>`;
+            toast.querySelector('.toast-close').onclick = () => toast.remove();
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 5000);
+        }
 
-            if (!phone || !pin) {
-                errEl.textContent = 'Enter your phone number and PIN.';
-                errEl.style.display = 'block';
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => showToast('Link copied to clipboard', 'success')).catch(() => showToast('Failed to copy link', 'error'));
+        }
+
+        // ============ MODAL ============
+        const modal = document.getElementById('preview-modal');
+        const modalBody = document.getElementById('modal-body');
+        const modalTitle = document.getElementById('modal-title');
+        const modalDownload = document.getElementById('modal-download');
+        const modalOpen = document.getElementById('modal-open');
+        const modalCopy = document.getElementById('modal-copy');
+        const modalClose = document.getElementById('modal-close');
+
+        function openModal(file) {
+            modalTitle.textContent = file.name;
+            modalDownload.href = file.url;
+            modalDownload.download = file.name;
+            modalOpen.href = file.url;
+            modalCopy.onclick = () => copyToClipboard(file.url);
+
+            modalBody.innerHTML = '';
+            if (file.type === 'image') {
+                const img = document.createElement('img');
+                img.src = file.url;
+                img.alt = file.name;
+                img.loading = 'eager';
+                modalBody.appendChild(img);
+            } else if (file.type === 'video') {
+                const video = document.createElement('video');
+                video.src = file.url;
+                video.controls = true;
+                video.autoplay = true;
+                video.playsInline = true;
+                video.poster = file.url; // fallback
+                modalBody.appendChild(video);
+            } else if (file.type === 'audio') {
+                const audio = document.createElement('audio');
+                audio.src = file.url;
+                audio.controls = true;
+                audio.style.maxWidth = '400px';
+                modalBody.appendChild(audio);
+            } else {
+                modalBody.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted);"><div style="font-size:4rem;margin-bottom:16px;">${getFileIcon(file.type)}</div><p>Preview not available for this file type</p></div>`;
+            }
+
+            modal.classList.add('open');
+            document.body.style.overflow = 'hidden';
+            modalClose.focus();
+        }
+
+        function closeModal() {
+            modal.classList.remove('open');
+            document.body.style.overflow = '';
+            modalBody.innerHTML = '';
+        }
+
+        modalClose.onclick = closeModal;
+        modal.onclick = (e) => { if (e.target === modal) closeModal(); };
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modal.classList.contains('open')) closeModal(); });
+
+        // ============ FILE RENDERING ============
+        function renderFiles(files) {
+            const grid = document.getElementById('files-grid');
+            const countEl = document.getElementById('file-count');
+
+            currentFiles = files;
+
+            if (!files || files.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state" role="status">
+                        <div class="empty-icon" aria-hidden="true">📁</div>
+                        <h2 class="empty-title">No files yet</h2>
+                        <p class="empty-desc">Send a view-once message, save a status, or use <code>.vv</code> in WhatsApp to see files appear here.</p>
+                    </div>
+                `;
+                countEl.textContent = '';
                 return;
             }
 
+            countEl.textContent = `${files.length} file${files.length !== 1 ? 's' : ''}`;
+
+            grid.innerHTML = files.map((f, i) => {
+                const isImage = f.type === 'image';
+                const isVideo = f.type === 'video';
+                const previewContent = isImage
+                    ? `<img src="${f.url}" loading="lazy" alt="${f.name}" decoding="async">`
+                    : isVideo
+                    ? `<video src="${f.url}" muted preload="metadata" playsinline></video>`
+                    : `<div class="placeholder" aria-hidden="true">${getFileIcon(f.type, f.ext)}</div>`;
+
+                return `
+                    <article class="file-card" role="listitem" tabindex="0" data-index="${i}" aria-label="${f.name}, ${f.type}, ${fmtSize(f.size)}, ${fmtDate(f.created_at)}">
+                        <div class="file-preview">
+                            ${previewContent}
+                            <span class="file-type-badge">${f.type.toUpperCase()}</span>
+                            <div class="file-actions-overlay">
+                                <button class="file-action-btn primary" data-action="preview" data-index="${i}" aria-label="Preview ${f.name}">👁 Preview</button>
+                                <a class="file-action-btn" href="${f.url}" download="${f.name}" aria-label="Download ${f.name}">⬇ Download</a>
+                            </div>
+                        </div>
+                        <div class="file-info">
+                            <div class="file-name" title="${f.name}">${f.name}</div>
+                            <div class="file-meta">
+                                <span>${fmtSize(f.size)}</span>
+                                <span>${fmtDate(f.created_at)}</span>
+                            </div>
+                        </div>
+                    </article>
+                `;
+            }).join('');
+
+            // Attach event listeners
+            grid.querySelectorAll('.file-card').forEach(card => {
+                const idx = parseInt(card.dataset.index, 10);
+                const file = files[idx];
+
+                // Click/tap for preview
+                card.addEventListener('click', (e) => {
+                    if (e.target.closest('.file-action-btn')) return;
+                    openModal(file);
+                });
+
+                // Keyboard support
+                card.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openModal(file);
+                    }
+                });
+
+                // Preview button
+                card.querySelector('[data-action="preview"]').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openModal(file);
+                });
+            });
+        }
+
+        // ============ API ============
+        async function fetchFiles(phone, pin) {
+            const cleanPhone = phone.replace(/\D/g, '');
+            const pinHash = await hashPin(cleanPhone, pin);
+
+            const res = await fetch(`${API}/user/files`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: cleanPhone, pin })
+            });
+
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'Failed to load files');
+            return data.files;
+        }
+
+        // Web Crypto API for PIN hashing (matches server)
+        async function hashPin(phone, pin) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(`${phone}:${pin}:wabot`);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        // ============ AUTH ============
+        async function login(phone, pin) {
+            const btn = document.getElementById('login-btn');
+            const btnText = btn.querySelector('.btn-text');
+            const btnLoading = btn.querySelector('.btn-loading');
+            const errEl = document.getElementById('login-error');
+
+            errEl.style.display = 'none';
             btn.disabled = true;
-            btn.textContent = 'Logging in...';
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline-flex';
 
             try {
+                const files = await fetchFiles(phone, pin);
+                currentPhone = phone.replace(/\D/g, '');
+                currentPin = pin;
                 localStorage.setItem('phone', phone);
                 localStorage.setItem('pin', pin);
 
-                const res = await fetch(`${API}/user/files`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone, pin }),
-                });
-                const data = await res.json();
-
-                if (!data.ok) throw new Error(data.error || 'Login failed');
-
-                showFiles(data.files, phone);
+                document.getElementById('phone-display').textContent = '+' + currentPhone;
+                document.getElementById('login-view').style.display = 'none';
+                document.getElementById('files-view').style.display = 'block';
+                renderFiles(files);
             } catch (e) {
                 errEl.textContent = e.message;
                 errEl.style.display = 'block';
-                localStorage.removeItem('phone');
-                localStorage.removeItem('pin');
                 btn.disabled = false;
-                btn.textContent = 'Login';
+                btnText.style.display = 'inline';
+                btnLoading.style.display = 'none';
             }
         }
 
         async function refresh() {
-            const phone = localStorage.getItem('phone');
-            const pin = localStorage.getItem('pin');
-            if (!phone || !pin) return logout();
-
+            if (!currentPhone || !currentPin) return logout();
             const grid = document.getElementById('files-grid');
-            grid.innerHTML = '<div class="loading">Loading...</div>';
-
+            grid.innerHTML = '<div class="loading-state"><div class="spinner" aria-hidden="true"></div><span>Loading...</span></div>';
             try {
-                const res = await fetch(`${API}/user/files`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone, pin }),
-                });
-                const data = await res.json();
-                if (!data.ok) throw new Error(data.error);
-                renderFiles(data.files);
+                const files = await fetchFiles(currentPhone, currentPin);
+                renderFiles(files);
+                showToast('Files refreshed', 'success');
             } catch (e) {
-                grid.innerHTML = `<div class="empty"><h2>Error</h2><p>${e.message}</p></div>`;
+                grid.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><h2 class="empty-title">Error</h2><p class="empty-desc">${e.message}</p></div>`;
+                showToast(e.message, 'error');
             }
-        }
-
-        function showFiles(files, phone) {
-            document.getElementById('login-view').style.display = 'none';
-            document.getElementById('files-view').style.display = 'block';
-            document.getElementById('phone-display').textContent = '+' + phone.replace(/\D/g, '');
-            renderFiles(files);
-        }
-
-        function renderFiles(files) {
-            const grid = document.getElementById('files-grid');
-
-            if (!files || files.length === 0) {
-                grid.innerHTML = '<div class="empty"><h2>No files yet</h2><p>Save a view-once or status to see files here.</p></div>';
-                return;
-            }
-
-            grid.innerHTML = files.map(f => {
-                let preview = '<div class="icon">📄</div>';
-                if (f.type === 'image') {
-                    preview = `<img src="${f.url}" loading="lazy" alt="${f.name}" />`;
-                } else if (f.type === 'video') {
-                    preview = `<video src="${f.url}" muted preload="metadata"></video>`;
-                } else if (f.type === 'audio') {
-                    preview = '<div class="icon">🎵</div>';
-                }
-
-                const name = f.name.length > 30 ? f.name.slice(0, 27) + '...' : f.name;
-
-                return `
-      <div class="file-card">
-        <div class="preview">${preview}</div>
-        <div class="info">
-          <div class="name">${name}</div>
-          <div class="meta">${fmtSize(f.size)} • ${fmtDate(f.created_at)}</div>
-          <div class="actions">
-            <a href="${f.url}" target="_blank" rel="noopener">View</a>
-            <a href="${f.url}" download class="secondary">⬇</a>
-          </div>
-        </div>
-      </div>
-    `;
-            }).join('');
         }
 
         function logout() {
+            currentPhone = '';
+            currentPin = '';
             localStorage.removeItem('phone');
             localStorage.removeItem('pin');
             location.reload();
         }
 
-        // Auto-login if saved
-        (function () {
+        // ============ EVENT LISTENERS ============
+        document.getElementById('login-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const phone = document.getElementById('phone').value.trim();
+            const pin = document.getElementById('pin').value.trim();
+            if (phone && pin) login(phone, pin);
+        });
+
+        document.getElementById('refresh-btn').addEventListener('click', refresh);
+        document.getElementById('logout-btn').addEventListener('click', logout);
+
+        // Auto-login if credentials saved
+        (function() {
             const phone = localStorage.getItem('phone');
             const pin = localStorage.getItem('pin');
             if (phone && pin) {
                 document.getElementById('phone').value = phone;
                 document.getElementById('pin').value = pin;
-                login();
+                login(phone, pin);
             }
         })();
     </script>
 </body>
-
 </html>

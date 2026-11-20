@@ -40,6 +40,23 @@ export interface KeywordReply {
   matchType: "exact" | "contains";
 }
 
+export interface AiRule {
+  id: string;
+  trigger: string;        // what the user says (supports wildcards * or regex)
+  response: string;       // what bot should reply
+  matchType: "exact" | "contains" | "startsWith" | "endsWith" | "regex";
+  enabled: boolean;
+  createdAt: number;
+}
+
+export interface AiProviderConfig {
+  id: string;
+  provider: "openai" | "anthropic" | "gemini" | "custom";
+  apiKey: string;
+  model: string;
+  baseUrl?: string;       // for custom endpoints
+}
+
 export interface BotFeatures {
   autoReact: boolean;
   saveStatus: boolean;
@@ -53,6 +70,7 @@ export interface BotFeatures {
   aiChat: boolean;
   customCommands: boolean;
   autoPresence: boolean;
+  replyMode: "only" | "all";
 }
 
 export interface BotSettings {
@@ -63,6 +81,10 @@ export interface BotSettings {
   goodbyeMessage: string;
   antiLinkWhitelist: string[];
   aiSystemPrompt: string;
+  adminNumber: string;           // owner's WhatsApp number (with country code, no +)
+  aiProviders: AiProviderConfig[];  // multiple AI API keys
+  aiRules: AiRule[];             // personal training rules (if X say Y)
+  defaultAiProvider: string;      // which provider to use by default
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -81,6 +103,7 @@ export const DEFAULT_SETTINGS: BotSettings = {
     aiChat: true,
     customCommands: true,
     autoPresence: true,
+    replyMode: "only",
   },
   reactionEmojis: [
     "❤️", "🔥", "😍", "🥰", "😂", "👏", "🎉", "💯", "✨", "😊",
@@ -91,6 +114,10 @@ export const DEFAULT_SETTINGS: BotSettings = {
   goodbyeMessage: "👋 {name} has left the group. Goodbye!",
   antiLinkWhitelist: [],
   aiSystemPrompt: "You are a helpful WhatsApp assistant. Keep responses short and friendly.",
+  adminNumber: "",
+  aiProviders: [],
+  aiRules: [],
+  defaultAiProvider: "openai",
 };
 
 // ── Settings persistence ──────────────────────────────────────────────────────
